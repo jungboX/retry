@@ -5,7 +5,8 @@ export function HomePage() {
     <div className="container">
       <div className="card">
         <h1>청도 일손이음</h1>
-        <p>농가 요청을 구조화하고, 후보를 추천하고, 승인으로 연결하는 데모입니다.</p>
+        <p>청도 농가의 일손 요청을 정리하고, 추천 근거를 확인한 뒤 농가와 구직자가 함께 승인하는 데모입니다.</p>
+        <p className="muted">로그인 없이 이용할 수 있습니다. 데모 승인은 실제 고용 계약이나 연락을 만들지 않습니다.</p>
         <div className="grid two-col" style={{ marginTop: 24 }}>
           <Link to="/farmer-demo" style={{ textDecoration: 'none', color: 'inherit' }}>
             <div className="card">
