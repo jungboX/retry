@@ -23,12 +23,22 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
 
   if (!response.ok) {
-    const body = await response.json().catch(() => undefined) as { message?: string; detail?: string } | undefined;
-    throw new Error(body?.message ?? body?.detail ?? `요청에 실패했습니다 (${response.status}).`);
+    const contentType = response.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json() as { message?: string; detail?: string };
+      throw new Error(body.message ?? body.detail ?? `요청에 실패했습니다 (${response.status}).`);
+    }
+    if (response.status >= 500) {
+      throw new Error('API 서버에 연결할 수 없습니다. Aspire 백엔드가 실행 중인지 확인해 주세요.');
+    }
+    throw new Error(`요청에 실패했습니다 (${response.status}).`);
   }
 
   if (response.status === 204) {
     return undefined as T;
+  }
+  if (!response.headers.get('content-type')?.includes('application/json')) {
+    throw new Error('API가 JSON이 아닌 응답을 반환했습니다. API 서버와 개발 프록시 설정을 확인해 주세요.');
   }
   return response.json() as Promise<T>;
 }
