@@ -44,10 +44,10 @@
 다른 담당자에게 요청할 변경:
 
 - 담당자 3: 요청 없음. 로컬 개발은 Vite 개발 서버(5173)가 `localhost:8081`로 프록시하고, AppHost가 API 컨테이너를 호스트 8081에 고정 노출한다. 이 값을 바꾸면 AppHost도 같이 바꾼다.
-- 담당자 1: 관리형 Azure PostgreSQL은 TLS를 요구한다. Aspire가 주는 연결 문자열에는 SSL 옵션이 없으므로 `DataSourceConfiguration`가 만드는 JDBC URL에 `sslmode=require`를 붙이는 방식으로 반영한다(로컬 컨테이너 Postgres에는 붙이지 않는다).
+- 담당자 1: 관리형 Azure PostgreSQL TLS는 PR #2로 반영됐다(`DataSourceConfiguration`). 배포 후 실제 연결만 확인한다.
 - 담당자 1·2: 각 Dockerfile이 Aspire 컨테이너 리소스에서 빌드되는지 확인한다.
-- 담당자 1: `services/api`의 `mvn test`가 컴파일 단계에서 실패한다(`com.fasterxml.jackson.*` 없음). `pom.xml` 의존성을 확인한다.
-- 담당자 2: `services/mcp-server`의 `mvn test`가 컴파일 단계에서 실패한다(테스트의 `@Test` 심볼 없음). `pom.xml`의 테스트 의존성을 확인한다.
+- 담당자 1: 완료. PR #2로 Azure PostgreSQL TLS가 반영됐고 `mvn test`(16개)가 통과한다.
+- 담당자 2: `services/mcp-server/pom.xml`에 테스트 의존성(`spring-boot-starter-test`)이 없어 `MatchToolsTest`가 실행되지 않는다(`mvn test`가 0개 실행으로 끝남). 의존성을 추가하고 테스트가 실제로 돌아가는지 확인한다.
 
 ## 브랜치·PR 절차
 
@@ -95,7 +95,7 @@
 
 ## 검증 현황 및 명령
 
-2026-11-05 `feat/aspire-deploy` 기준 확인 결과: 프런트엔드 `npm ci`·프로덕션 빌드, AppHost `dotnet build`, `aspire publish`(Bicep 생성, 외부 ingress는 게이트웨이뿐)는 통과했다. **`mvn test`는 api와 mcp-server 모두 컴파일 단계에서 실패한다** (api: `DemoSessionStore`의 `com.fasterxml.jackson.*` 패키지 없음, mcp-server: 테스트의 `@Test` 심볼 없음). 둘 다 `pom.xml` 의존성 문제로 보이며 담당자 1·2가 해결해야 한다. 이 때문에 Dockerfile 이미지 빌드와 CI의 `api`·`mcp-server` 잡도 실패할 것이다. Agent 테스트(`uv`가 이 PC에 없어 미실행), E2E, `aspire deploy`는 확인하지 않았다. 점수 가중치 중 작업 종류 25점은 코드로 확인하지 않았다. 프런트엔드 의존성 설치 시 npm이 취약점 4건(중간 3, 높음 1)을 보고했으며, 범위 검토 없이 자동 업그레이드하지 않는다.
+2026-11-05 `feat/aspire-deploy` 기준 확인 결과: 프런트엔드 `npm ci`·프로덕션 빌드, AppHost `dotnet build`, `aspire publish`(Bicep 생성, 외부 ingress는 게이트웨이뿐)는 통과했다. **api `mvn test`는 16개가 통과한다(PR #2 반영 후). mcp-server는 테스트 의존성이 pom에 없어 테스트가 0개 실행된다.** Dockerfile 이미지 빌드는 확인하지 않았다. Agent 테스트(`uv`가 이 PC에 없어 미실행), E2E, `aspire deploy`는 확인하지 않았다. 점수 가중치 중 작업 종류 25점은 코드로 확인하지 않았다. 프런트엔드 의존성 설치 시 npm이 취약점 4건(중간 3, 높음 1)을 보고했으며, 범위 검토 없이 자동 업그레이드하지 않는다.
 
 ```bash
 # 프런트엔드
