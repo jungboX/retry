@@ -227,7 +227,7 @@ aspire deploy --environment Production
 - **시간·날짜 해석:** “다음 주” 같은 상대 날짜는 기준 시간대를 명확히 하고, 사용자 확인 전에는 확정 조건으로 취급하지 않는다.
 - **Aspire 배포 호환성:** `aspire publish`로 Bicep 생성은 확인했고, 외부 ingress는 게이트웨이 하나뿐이다. 실제 `aspire deploy`(이미지 빌드·푸시·프로비저닝)는 Azure 자격 증명이 필요해 아직 검증하지 않았다. 게이트웨이의 정적 게시 API는 실험적이므로 첫 실배포에서 정적 파일과 `/api` 라우팅을 확인한다.
 - **관리형 DB 연결:** API는 관리형 Azure PostgreSQL에 TLS를 요구하도록 구현돼 있다(PR #2). 배포 후 실제 TLS 연결과 네트워크 접근 범위(공개 접근 여부)를 검증하고, 프로덕션 공개 전에 경계를 검토한다.
-- **Dockerfile 빌드 컨텍스트:** AppHost는 세 Dockerfile을 저장소 루트 컨텍스트로 참조한다. 이미지 빌드 자체는 아직 검증하지 않았고, `services/mcp-server`는 pom에 테스트 의존성이 없어 테스트가 실행되지 않는다.
+- **Dockerfile 빌드 컨텍스트:** AppHost는 세 Dockerfile을 저장소 루트 컨텍스트로 참조한다. agent와 api 이미지는 로컬에서 빌드가 성공했다. `services/mcp-server` 이미지는 pom에 테스트 의존성이 없어 `MatchToolsTest` 컴파일 오류로 빌드가 실패하며, 이는 배포와 로컬 `aspire run`을 막는다(담당자 2 수정 필요).
 - **프런트엔드 프록시:** 로컬 개발은 Vite 개발 서버(5173)가 `localhost:8081`로 프록시하고, AppHost가 API 컨테이너를 호스트 8081에 고정 노출한다. 배포에서는 게이트웨이가 `/api`를 프록시하므로 프런트엔드는 상대 경로만 쓴다.
 
 ## 12. 기술 요구사항과 검증
