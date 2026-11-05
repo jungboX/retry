@@ -17,9 +17,22 @@
 - `frontend`: React, TypeScript, Vite. API 호출과 화면 상태만 담당한다.
 - `services/api`: Java 21, Spring Boot 4.1.2, Maven. 업무 API와 승인 상태를 담당한다.
 - `services/agent`: Python Microsoft Agent Framework. Agent와 순차 워크플로우를 담당한다.
+- GitHub Copilot SDK와 Microsoft Agent Framework는 해커톤 평가에 필요한 별도 기술이다. SDK를 범용 모델 추상화 계층이라고 단정하지 말고, 각 기술의 실제 역할과 연동 가능성을 확인한다.
 - `services/mcp-server`: Java Spring AI 2.0.2 MCP Server. 후보 조회, 안전 검토, 점수 계산 도구를 제공한다.
-- `aspire`: 로컬 서비스 연결, health check, trace를 담당한다.
+- `aspire`: 로컬 서비스 실행·연결, health check, end-to-end trace를 담당한다.
 - `infra`: Azure 배포 리소스를 정의한다.
+
+## 제품 문서 규칙
+
+- 문서 작성·갱신 순서는 `IDEATION.md` → `PRD.md` → `TDD.md` → `TRD.md`로 한다.
+- 이 순서는 이 프로젝트가 정한 `TDD=결정 이유`, `TRD=기술 구현 기준`의 구분을 따른다. 참고 저장소의 [`create-tdd` 스킬](https://github.com/justinyoo/skills/blob/main/skills/create-tdd/SKILL.md)은 PRD와 TRD를 모두 전제로 하므로, 그 스킬의 절차를 그대로 적용할 때는 TRD를 TDD보다 먼저 작성해야 한다.
+- `IDEATION.md`는 문제, 사용자, 아이디어, 검증할 가설을 정리한다.
+- `PRD.md`는 제품 목표, 사용자 흐름, 범위, 사용자에게 보이는 요구사항과 인수 조건을 정의한다. 구현 기술과 내부 설계는 넣지 않는다.
+- `TDD.md`는 설계 결정의 이유, 대안, 결과를 기록한다.
+- `TRD.md`는 확정된 제품 요구를 기술 구성, 인터페이스, 데이터, 운영 및 배포 요구로 구체화한다.
+- 상위 문서가 바뀌면 하위 문서의 영향 범위를 함께 확인한다. 같은 사실을 여러 문서에서 서로 다르게 정의하지 않는다.
+- 출처가 있는 해커톤 요구와 기술 사실은 원문 출처를 기록하고, 검증하지 않은 제안은 확정된 사실처럼 쓰지 않는다.
+- 결과의 근거와 보안 위험은 작성자와 다른 모델을 사용해 2차 검토한다. 다른 모델을 사용할 수 없으면 미검증 사실을 보고하고 독립 검증을 완료했다고 표현하지 않는다.
 
 ## Agent 규칙
 
@@ -43,6 +56,7 @@
 - 구직자 수락 전에는 매칭을 확정하지 않는다.
 - 농가 승인과 구직자 수락이 모두 완료된 경우에만 `CONFIRMED`로 변경한다.
 - 모든 승인 실패와 중복 승인 요청은 안전하게 처리한다.
+- 해커톤 심사 앱은 Azure 기본 도메인으로 배포하고, 심사자가 로그인 없이 핵심 흐름을 사용할 수 있어야 한다.
 
 ## 데이터 규칙
 
