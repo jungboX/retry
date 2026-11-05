@@ -14,7 +14,7 @@ TRD는 PRD의 사용자 요구를 기술 구성, 서비스 경계, 인터페이�
 - PRD 핵심 흐름을 처음부터 양쪽 승인과 최종 상태까지 실행한다.
 - GitHub Copilot SDK와 Microsoft Agent Framework를 해커톤의 필수 기술로 실제 기능에 사용한다. 두 기술의 통합 방식은 배포 전 호환성 검증을 통과해야 한다.
 - 에이전트는 명시적인 순차 워크플로를 따른다. LLM은 최종 점수 계산, 승인, 매칭 확정을 하지 않는다.
-- 심사자가 로그인 없이 사용할 수 있는 웹 앱을 Azure에 배포한다.
+- 심사자가 로그인 없이 사용할 수 있는 웹 앱을 Azure에 배포한다. 배포는 Aspire AppHost에서 `aspire deploy` 한 경로로 반복 실행할 수 있어야 한다.
 - 데모 데이터만 사용하고, 비밀값은 소스 코드나 저장소에 저장하지 않는다.
 - API 계약은 `shared/openapi.yaml`을 단일 기준으로 유지한다.
 
@@ -28,11 +28,12 @@ TRD는 PRD의 사용자 요구를 기술 구성, 서비스 경계, 인터페이�
 | Copilot SDK | GitHub Copilot SDK | 해커톤 필수 SDK를 활용한 Agent/LLM 실행. 정확한 연동 경계는 호환성 검증 후 확정 |
 | MCP | Java, Spring AI 2.0.2 MCP Server | 후보 조회, 안전 검토, 점수 및 근거 계산 도구 |
 | 데이터 | PostgreSQL | 로컬 및 Azure에서 일관된 데모 상태 저장 |
-| 로컬 오케스트레이션 | .NET Aspire | 서비스 실행, 연결, 헬스 체크, 분산 추적 |
-| 배포 | Azure Static Web Apps, Azure Container Apps | 공개 웹 앱과 컨테이너 서비스 제공 |
+| 오케스트레이션·배포 | .NET Aspire (`aspire run`, `aspire deploy`) | 로컬 서비스 실행·연결·헬스 체크·추적, Azure 배포의 단일 진입점 |
+| 컴퓨트 | Azure Container Apps (Aspire Azure Container Apps 환경) | 웹(정적 파일 서빙), API, Agent, MCP 컨테이너 실행 |
+| 이미지 저장소 | Azure Container Registry | Aspire가 배포 시 프로비저닝하고 이미지를 빌드·게시한다 |
 | 관리형 데이터 | Azure Database for PostgreSQL Flexible Server | 배포 환경의 데모 데이터 저장 |
 
-Spring AI 버전은 Spring Boot 버전과 별개로 BOM에서 관리한다. 구현 전에 선택한 프레임워크 버전의 상호 호환성을 확인한다.
+Spring AI 버전은 Spring Boot 버전과 별개로 BOM에서 관리한다. 구현 전에 선택한 프레임워크 버전의 상호 호환성을 확인한다. 현재 AppHost 패키지(`Aspire.Hosting` 9.0.0, `net9.0`)는 `aspire deploy`와 Azure Container Apps 대상을 지원하는 버전이 아닐 수 있으므로, 공식 문서 기준 버전으로 올리고 빌드를 검증한다.
 
 ## 3. 서비스 경계와 호출 흐름
 
@@ -49,6 +50,16 @@ React Web
 ```
 
 웹 앱은 업무 API만 호출한다. API는 Agent 분석을 요청하고, 승인 상태 변경을 직접 처리한다. Agent는 명시적으로 허용된 MCP 도구만 호출한다. MCP Server는 승인 또는 최종 상태 변경 기능을 제공하지 않는다.
+
+### 서비스 간 계약 소유
+
+| 경계 | 계약 | 소유 |
+|---|---|---|
+| Web → API | `shared/openapi.yaml` (모든 요청에 `X-Demo-Session-Id` 헤더) | 담당자 1 |
+| API → Agent | `POST /api/jobs/analyze` 요청 `{ rawRequest: string(1~4000자) }`, 응답은 분석 결과 JSON. 실패는 502(도구 연결 실패)·503(분석 실패) | 담당자 2 (API 쪽 `AgentClient` 변경은 담당자 1과 합의) |
+| Agent → MCP | 4개 도구의 이름·인자·응답 (§4) | 담당자 2 |
+
+계약을 바꾸는 사람은 소유자에게 먼저 PR로 제안하고, 소비 측은 그 PR이 머지된 뒤 따라간다.
 
 Copilot SDK와 Agent Framework의 호출 순서·도구 권한·오류 전달은 통합 호환성 검증의 대상이다. 검증에 실패하면 기술 조합과 연결 경계를 재검토하고, SDK를 이름만 사용하는 구현으로 대체하지 않는다.
 
@@ -84,11 +95,14 @@ Copilot SDK와 Agent Framework의 호출 순서·도구 권한·오류 전달은
 POST /api/jobs/analyze
 POST /api/jobs
 GET  /api/jobs/{jobId}/matches
+POST /api/jobs/{jobId}/safety-confirm
 POST /api/matches/{matchId}/farmer-approve
 POST /api/matches/{matchId}/worker-accept
 GET  /api/demo/state
 GET  /actuator/health
 ```
+
+`/actuator/health`를 제외한 모든 요청은 브라우저가 만든 `X-Demo-Session-Id`(UUID) 헤더로 데모 세션을 구분한다.
 
 오류 응답은 입력 누락, 분석 실패, 후보 없음, 승인 충돌을 구분하고 사용자가 복구할 수 있는 정보를 포함한다. 중복 승인과 잘못된 상태 전이는 최종 상태를 변경하지 않아야 한다.
 
@@ -119,6 +133,8 @@ Match
 /matching/:id     승인 및 최종 상태
 ```
 
+웹 앱은 상대 경로(`/api/...`)로 API를 호출한다. 배포 환경에서는 웹을 서빙하는 컨테이너가 `/api`를 API로 프록시하므로 같은 출처에서 동작하고 CORS가 필요 없다. 로컬 개발 서버도 `/api`를 API로 프록시한다.
+
 로그인, 초대 코드, 별도 비밀번호 없이 PRD의 전체 핵심 여정을 수행할 수 있어야 한다. 공개 데모는 가짜 데이터만 다루며, 새로고침 후 데모 상태를 확인할 수 있어야 한다. 동시 방문자의 상태 격리와 데모 초기화 방식은 구현 전에 결정하고 검증한다.
 
 ## 7. 보안, 개인정보 및 신뢰
@@ -145,13 +161,26 @@ MCP_SERVER_URL
 AGENT_SERVICE_URL
 CORS_ALLOWED_ORIGINS
 VITE_API_BASE_URL
+Azure__SubscriptionId
+Azure__Location
+Azure__ResourceGroup
+Parameters__copilotGithubToken
 ```
 
-실제 토큰, 비밀번호, 연결 문자열은 예제 파일이나 소스에 넣지 않는다. 로컬 Aspire는 PostgreSQL 연결 값을 주입하고, 개발자가 각 서비스를 따로 실행할 때는 `DATABASE_URL`에 JDBC URL을 지정한다.
+`Azure__*`와 `Parameters__*`는 `aspire deploy`(특히 CI)에 전달하는 배포 입력이다. 실제 토큰, 비밀번호, 연결 문자열은 예제 파일이나 소스에 넣지 않는다. Aspire는 PostgreSQL 연결 값을 `ConnectionStrings__retry`로 주입하고 API가 이를 읽는다. 개발자가 각 서비스를 따로 실행할 때는 `DATABASE_URL`에 JDBC URL을 지정한다. `VITE_API_BASE_URL`은 로컬에서 비워 두며, 배포 환경은 상대 경로를 쓰므로 설정하지 않는다.
 
-## 9. 로컬 실행과 Aspire
+## 9. Aspire AppHost 구성
 
-Aspire AppHost는 웹, API, Agent, MCP, PostgreSQL의 실행 관계를 관리한다. 서비스가 준비되지 않았거나 연결할 수 없는 경우 상태를 확인할 수 있어야 한다.
+Aspire AppHost는 웹, API, Agent, MCP, PostgreSQL의 실행 관계를 관리하며, 로컬 실행(`aspire run`)과 Azure 배포(`aspire deploy`)가 같은 AppHost 모델을 사용한다. 서비스가 준비되지 않았거나 연결할 수 없는 경우 상태를 확인할 수 있어야 한다.
+
+배포 모델의 기준:
+
+- API, Agent, MCP는 컨테이너 리소스로 모델링한다. 기존 Dockerfile(`services/*/Dockerfile`)을 사용하며, 이 Dockerfile은 저장소 루트를 빌드 컨텍스트로 가정한다. 현재 AppHost의 `AddExecutable`(`mvn`, `python`) 리소스는 컨테이너 배포 대상이 될 수 없으므로 배포 경로에서 교체한다.
+- 웹은 Vite 앱 리소스로 두고 정적 웹사이트로 게시해, 웹 컨테이너가 `/api`를 API로 프록시하도록 한다. 웹만 외부 공개 엔드포인트를 가지며 API, Agent, MCP는 내부 접근으로 둔다. 이 게시 방식의 API는 공식 문서에서 실험적이므로 사용 버전에서 동작을 확인한다.
+- PostgreSQL은 로컬에서는 컨테이너, Azure에서는 관리형 PostgreSQL을 사용하도록 모델링하고, API는 `ConnectionStrings__retry`를 통해 연결한다.
+- Copilot 토큰은 비밀 매개변수로 선언해 Agent에 환경 변수로 주입하며, 소스와 저장소에 값을 두지 않는다.
+
+관찰 가능성:
 
 - 각 서비스의 health check를 Aspire 대시보드에서 확인한다.
 - API 요청부터 Agent/MCP 호출까지 상관관계가 있는 trace를 확인한다.
@@ -162,31 +191,33 @@ Aspire AppHost는 웹, API, Agent, MCP, PostgreSQL의 실행 관계를 관리한
 
 | 구성 요소 | 배포 위치 |
 |---|---|
-| React Web | Azure Static Web Apps |
-| Spring Boot API | Azure Container Apps |
-| Python Agent Service | Azure Container Apps |
-| MCP Server | Azure Container Apps 내부 접근 서비스 |
+| React Web | Azure Container Apps (외부 공개, 정적 파일 서빙 + `/api` 프록시) |
+| Spring Boot API | Azure Container Apps (내부) |
+| Python Agent Service | Azure Container Apps (내부) |
+| MCP Server | Azure Container Apps (내부) |
+| 이미지 저장소 | Azure Container Registry (Aspire가 프로비저닝) |
 | Database | Azure Database for PostgreSQL Flexible Server |
 
-배포 앱은 `*.azurestaticapps.net`, `*.azurecontainerapps.io` 등 Azure 기본 도메인을 사용한다. 커스텀 도메인은 심사 URL로 사용하지 않는다. API와 Agent에 요청 ID를 전달하고 헬스 상태와 실패 원인을 관찰할 수 있어야 한다.
+배포 앱은 `*.azurecontainerapps.io` Azure 기본 도메인을 사용한다. 커스텀 도메인은 심사 URL로 사용하지 않는다. API와 Agent에 요청 ID를 전달하고 헬스 상태와 실패 원인을 관찰할 수 있어야 한다.
 
-AppHost는 로컬 개발용이다. `infra/main.bicep`은 Azure 리소스만 만들며, 컨테이너 이미지를 빌드·게시하거나 Static Web Apps 정적 파일을 배포하지 않는다. Azure 배포 시 컨테이너 이미지를 먼저 게시하고, 아래 절차로 인프라를 배포한 뒤 웹 앱을 빌드·배포한다. 비밀 매개변수는 저장소에 저장하지 말고 안전한 셸 환경이나 배포 비밀 저장소에서 전달한다.
+배포는 Aspire 공식 문서의 Azure 배포 모델을 따른다. `aspire deploy`는 AppHost의 Azure Container Apps 환경을 대상으로 파라미터를 해석하고, 인프라를 프로비저닝하고, 컨테이너 이미지를 빌드·게시하고, 관리 ID로 이미지 pull 권한을 구성한 뒤 각 리소스를 배포한다. 배포 대상(컴퓨트 환경)이 AppHost에 없으면 `aspire deploy`는 아무 작업도 하지 않으므로, 이를 추가하는 것이 배포 작업의 첫 단계다.
 
-```powershell
+```bash
 az login
 
-# 배포 전 공개 접근 가능한 컨테이너 이미지 주소와 비밀값을 입력하고 변경 사항을 검토한다.
-az deployment group what-if --name retry-deployment --resource-group <resource-group> --template-file infra/main.bicep --parameters appName=<app-name> apiImage=<api-image> agentImage=<agent-image> mcpImage=<mcp-image> databaseUsername=<database-user> databasePassword=<secure-value> copilotGithubToken=<secure-value>
+# 로컬 배포: 누락된 값은 첫 배포 때 프롬프트로 묻거나 아래처럼 로컬 비밀로 저장한다.
+aspire secret set "Azure:SubscriptionId" "<subscription-id>"
+aspire secret set "Azure:Location" "<region>"
+aspire secret set "Azure:ResourceGroup" "<resource-group>"
+aspire deploy --environment Production
 
-# Bicep 배포 결과에서 API URL을 읽어 정적 웹 앱을 API에 연결한다.
-az deployment group create --name retry-deployment --resource-group <resource-group> --template-file infra/main.bicep --parameters appName=<app-name> apiImage=<api-image> agentImage=<agent-image> mcpImage=<mcp-image> databaseUsername=<database-user> databasePassword=<secure-value> copilotGithubToken=<secure-value>
-$env:VITE_API_BASE_URL = az deployment group show --resource-group <resource-group> --name retry-deployment --query properties.outputs.apiUrl.value -o tsv
-npm --prefix frontend run build
-$env:SWA_CLI_DEPLOYMENT_TOKEN = az staticwebapp secrets list --name <app-name>-web --resource-group <resource-group> --query properties.apiKey -o tsv
-swa deploy frontend/dist --env production
+# CI 배포: Azure__SubscriptionId, Azure__Location, Azure__ResourceGroup, Parameters__copilotGithubToken을
+# 파이프라인 비밀·환경 변수로 전달한다. OIDC(워크로드 ID 연동)로 Azure에 로그인한다.
 ```
 
-Static Web Apps CLI 배포 토큰은 Azure에서 안전하게 가져와 `swa deploy`에 전달한다. 이미지 저장소 로그인과 게시는 현재 자동화되어 있지 않으므로, 배포 전에 Container Apps가 읽을 수 있는 레지스트리에 이미지를 게시해야 한다. 데이터베이스는 현재 Azure 서비스 방화벽에서 Azure 서비스 연결을 허용하므로, 프로덕션 사용 전에는 사설 네트워크 구성을 적용한다. 배포 리소스 삭제는 `az group delete`로 가능하지만 해당 리소스 그룹 전체가 삭제되므로, 실행 전 대상과 범위를 확인한다.
+비밀 값은 저장소에 저장하지 말고 `aspire secret` 또는 CI 비밀 저장소로만 전달한다. 배포 리소스 삭제는 리소스 그룹 단위로 이루어지므로 실행 전 대상과 범위를 확인한다.
+
+`infra/main.bicep`은 이전 배포 경로(Bicep + Static Web Apps)의 산출물이다. Aspire 배포가 검증된 뒤 삭제 여부를 결정하며, 그 전까지 이 파일로 배포했다고 보고하지 않는다. 두 경로를 혼합하지 않는다.
 
 ## 11. 기술 검증 및 미확정 위험
 
@@ -194,6 +225,10 @@ Static Web Apps CLI 배포 토큰은 Azure에서 안전하게 가져와 `swa dep
 - **모델 인증:** 로컬 개발과 Azure 컨테이너에서 각각 비대화형 인증이 가능한지 확인한다. 사용자 개인의 로컬 CLI 로그인에만 의존하지 않는다.
 - **공개 데모 상태:** 무인증 환경에서 여러 심사자가 동시에 사용할 때 데이터가 섞이거나 기존 데모를 덮어쓰지 않는지 검증한다.
 - **시간·날짜 해석:** “다음 주” 같은 상대 날짜는 기준 시간대를 명확히 하고, 사용자 확인 전에는 확정 조건으로 취급하지 않는다.
+- **Aspire 배포 호환성:** 현재 AppHost 패키지(9.0.0, `net9.0`)에는 Azure Container Apps 배포 대상이 없다. 지원 버전으로 올린 뒤 빌드하고, `AddExecutable` 리소스를 컨테이너 리소스로 바꾸고, 웹 정적 게시(실험적 API)가 동작하는지 `aspire deploy` 사전 검증으로 확인한다. 검증 전에는 배포가 가능하다고 보고하지 않는다.
+- **관리형 DB 연결:** API가 Aspire 연결 문자열에서 만드는 JDBC URL에는 SSL 옵션이 없다. 관리형 Azure PostgreSQL의 TLS 요구와 네트워크 접근 범위(공개 접근 여부)를 배포 후 검증하고, 프로덕션 공개 전에 경계를 검토한다.
+- **Dockerfile 빌드 컨텍스트:** 세 Dockerfile은 저장소 루트를 컨텍스트로 가정한다. AppHost의 컨테이너 리소스가 같은 컨텍스트를 쓰는지 확인한다.
+- **프런트엔드 프록시:** `frontend/vite.config.ts`의 `/api` 프록시는 `localhost:8081`로 고정돼 있다. Aspire가 주입하는 API 주소를 읽도록 바꿔 로컬과 배포에서 같은 상대 경로가 동작하게 한다.
 
 ## 12. 기술 요구사항과 검증
 
@@ -209,7 +244,8 @@ Static Web Apps CLI 배포 토큰은 Azure에서 안전하게 가져와 `swa dep
 | TR-06 | 공개 데모는 새로고침 후 상태를 유지하고, 동시 사용자의 데이터가 섞이지 않도록 해야 한다. | PR-08; TDD ADR-006 | 두 독립 데모 세션의 생성·갱신·새로고침 테스트를 수행한다. |
 | TR-07 | Aspire는 웹, API, Agent, MCP, PostgreSQL을 함께 실행하고 health check 및 요청 추적을 제공해야 한다. | IDEATION Layer 3; TDD ADR-008 | AppHost 시작 후 각 서비스의 준비 상태와 API→Agent→MCP trace를 확인한다. |
 | TR-08 | 심사자는 Azure 기본 도메인에서 로그인 없이 핵심 여정을 수행할 수 있어야 한다. | PR-08; 해커톤 제출 안내 | 배포 URL에서 인증 없이 요청부터 양쪽 승인까지 E2E 시나리오를 수행한다. |
-| TR-09 | 비밀값과 불필요한 개인정보는 코드, 데모 데이터, 로그, trace에 포함되지 않아야 한다. | PR-09; AGENTS 데이터 규칙 | 저장소 변경분과 테스트 데이터·로그를 검사하고, Azure 런타임 설정에서 비밀값 노출 여부를 확인한다. |
+| TR-09 | Azure 배포는 `aspire deploy`로 반복 실행할 수 있어야 하며, 웹만 외부에 노출하고 API·Agent·MCP는 내부 접근이어야 한다. | PR-08; TDD ADR-008; 해커톤 평가 기준(반복 가능한 배포) | 새 리소스 그룹에 `aspire deploy`를 실행해 성공하고, 같은 명령 재실행이 오류 없이 끝나며, 외부에서 내부 서비스 URL에 직접 접근할 수 없음을 확인한다. |
+| TR-10 | 비밀값과 불필요한 개인정보는 코드, 데모 데이터, 로그, trace에 포함되지 않아야 한다. | PR-09; AGENTS 데이터 규칙 | 저장소 변경분과 테스트 데이터·로그를 검사하고, Azure 런타임 설정에서 비밀값 노출 여부를 확인한다. |
 
 ## 13. 요구사항 추적
 
@@ -220,5 +256,5 @@ Static Web Apps CLI 배포 토큰은 Azure에서 안전하게 가져와 `swa dep
 | PR-04 | `check_job_safety`, 승인 전 위험 확인 |
 | PR-05, PR-06 | 업무 API, `Match` 승인 상태 전이 |
 | PR-07 | API/Agent/MCP 오류 모델과 사용자 복구 안내 |
-| PR-08 | 공개 Azure URL, 게스트 데모 화면 |
+| PR-08 | 공개 Azure URL, 게스트 데모 화면, `aspire deploy` 배포 (TR-08, TR-09) |
 | PR-09 | 테스트 데이터, 비밀값 관리, 로그·trace 제한 |

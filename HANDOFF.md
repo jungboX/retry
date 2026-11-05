@@ -1,106 +1,125 @@
 # 작업 인계: 청도 일손이음 MVP
 
-## 목적과 진행 기준
+## 목적과 기준 상태
 
-이 저장소의 현재 작업은 자연어 농가 요청부터 조건 확인, 후보 추천, 농가 승인, 구직자 수락까지의 MVP 흐름을 구현하고 문서의 요구사항과 일치시키는 것이다. 이번 인계 문서는 2026-11-05 기준의 작업 상태와 네 명의 담당 영역, 검증·커밋 순서를 정한다.
+자연어 농가 요청부터 조건 확인, 후보 추천, 농가 승인, 구직자 수락까지의 MVP 흐름을 구현하고 문서 요구사항과 일치시킨다. 이 문서는 2026-11-05 기준으로 네 명의 담당 영역, 브랜치·PR 절차, 배포 경로를 정한다.
 
-저장소의 `AGENTS.md`와 제품 문서(`IDEATION.md`, `PRD.md`, `TDD.md`, `TRD.md`)를 먼저 읽는다. 사용자 개인정보·자격 증명을 추가하지 않고, 매칭은 양측 승인 후에만 확정한다. 현재 코드는 작업 중이며, 통합 테스트와 Azure 배포가 완료된 상태가 아니다.
+먼저 `AGENTS.md`와 제품 문서(`IDEATION.md`, `PRD.md`, `TDD.md`, `TRD.md`)를 읽는다. 실제 개인정보와 비밀값을 추가하지 않고, 매칭은 양측 승인 후에만 확정한다.
 
-## Aspire와 Dockerfile에 관한 확인
+- 기준 브랜치는 `main`이다. 이전 인계 브랜치 `feat/mvp-matching-flow`는 PR #1로 `main`에 머지됐으며 더 이상 쓰지 않는다.
+- 현재 코드는 통합 테스트와 Azure 배포가 완료되지 않은 상태다. 로컬 빌드 성공을 Azure 배포 성공의 증거로 보고하지 않는다.
 
-- 초기 `TRD.md`는 로컬 런타임에 Aspire를, 클라우드에 Azure Container Apps와 Azure Static Web Apps를 기재했다. 하지만 Aspire로 배포하는 구체적인 구성이나 Dockerfile 없이 배포된다는 결정은 문서에 없었다.
-- 초기 `aspire/AppHost/Program.cs`는 `AddNpmApp`과 `AddExecutable`로 서비스를 로컬 실행할 뿐, Azure 배포 타깃을 선언하지 않았다.
-- 현재 변경된 AppHost도 로컬 실행·PostgreSQL 연결을 설정하지만, Azure 배포 타깃은 아직 없다. 따라서 현재 상태에서 `aspire deploy`가 Azure 리소스를 배포한다고 볼 수 없다. Aspire 공식 배포 문서는 배포 타깃 또는 배포 단계를 제공하는 리소스가 없으면 `deploy`가 수행할 작업이 없다고 설명한다: [Aspire deployment](https://aspire.dev/deployment/deploy-with-aspire/).
-- API·Agent·MCP Dockerfile은 이전 구현 과정에서 추가됐지만, 현재 AppHost가 이를 참조하지 않는다. 그러므로 지금은 **배포에 필요한 것으로 확정되지 않은 미연결 파일**이다. Aspire의 Azure 배포 타깃을 정한 뒤, 각 서비스 리소스가 그 타깃에서 지원되는지 검증하고 유지·수정·삭제를 결정한다.
-- 기존 `infra/main.bicep`은 컨테이너 이미지 주소를 받아 ACA를 구성하는 별도 배포 경로다. 이 경로를 사용할 경우 이미지 빌드·게시 단계가 필요하다. 이는 Aspire의 `aspire deploy` 경로와 동일하지 않으므로, 두 경로를 혼합하거나 배포 완료로 표시하지 않는다.
+## 확정된 결정
 
-**담당자 4가 우선 결정할 사항:** 목표가 `aspire deploy`인지, Bicep 기반 Azure 배포인지 정하고 하나의 경로를 문서와 코드에서 일치시킨다. Dockerfile은 이 결정과 타깃 호환성 검증 뒤에 처리한다.
+| 주제 | 결정 | 근거 |
+|---|---|---|
+| 브랜치 | 담당자별 브랜치를 `main`에서 만들고 PR로 머지한다 | 이 문서 |
+| 배포 경로 | Aspire(`aspire deploy`) → Azure Container Apps. Bicep + Static Web Apps 경로는 폐기한다 | TRD §9·§10, TDD ADR-008 |
+| 웹 배포 | 웹 컨테이너가 정적 파일을 서빙하고 `/api`를 API로 프록시한다 (CORS 불필요) | TRD §9 |
+| 문서 소유 | 제품·기술 문서(`PRD`, `TDD`, `TRD`, `AGENTS`, `README`)는 담당자 4가 소유한다. 다른 담당자는 PR로 변경을 제안한다 | 이 문서 |
 
 ## 네 명의 기능별 담당
 
-| 담당 | 책임 영역 | 소유 경로 | 작업 및 완료 조건 |
+| 담당 | 책임 영역 | 소유 경로 | 완료 조건 |
 |---|---|---|---|
-| 1. API·데이터 | 세션 저장, 작업·매칭 API, 승인 상태 | `services/api/**`, `shared/openapi.yaml` | DB 재시작 후 복구, 세션 분리, 누락 조건 차단, 양측 승인 상태를 테스트하고 OpenAPI 응답과 코드 일치 확인 |
-| 2. Agent·MCP | 자연어 구조화, 순차 워크플로, 도구 및 점수 | `services/agent/**`, `services/mcp-server/**` | 실제 도구 이름·인자·응답 연결, 점수 규칙 일치, 안전 도구, Agent/MCP 테스트 통과 |
-| 3. 프런트엔드 | 농가·구직자 핵심 여정과 상태 표시 | `frontend/**` | 타입 검사와 프로덕션 빌드 통과, 로딩·오류·누락 조건·승인·새로고침 흐름 확인 |
-| 4. Aspire·Azure 통합 | 배포 경로 선택, 서비스 연결, 배포 및 E2E | `aspire/**`, `infra/**`, `TRD.md` 배포 절 | Aspire 배포 타깃 또는 Bicep 경로 중 하나를 정하고, 필요한 이미지/리소스/웹 배포 절차를 검증. 로컬 통합 및 가능한 Azure 사전 검증 수행 |
+| 1. API·데이터 | 세션 저장, 작업·매칭 API, 승인 상태 | `services/api/**`, `shared/openapi.yaml` | DB 재시작 후 복구, 세션 분리, 누락 조건 차단, 양측 승인 상태 테스트 통과, OpenAPI와 코드 일치 |
+| 2. Agent·MCP | 자연어 구조화, 순차 워크플로, 도구·점수 | `services/agent/**`, `services/mcp-server/**` | 실제 도구 이름·인자·응답 연결, 점수 규칙이 PRD PR-03과 일치, 안전 도구, Agent/MCP 테스트 통과 |
+| 3. 프런트엔드 | 농가·구직자 핵심 여정과 상태 표시 | `frontend/**` | 타입 검사·프로덕션 빌드 통과, 로딩·오류·누락 조건·승인·새로고침 흐름 확인 |
+| 4. Aspire·Azure·문서 | 배포, 서비스 연결, CI, E2E, 제품·기술 문서 | `aspire/**`, `infra/**`, `.github/workflows/**`, 루트 문서(`*.md`), `.env.example` | 아래 담당자 4 작업 목록의 항목을 실제 실행 결과로 확인 |
 
-문서 전체의 요구사항 변경은 담당자 4가 영향 범위를 조정한다. 한 번에 같은 파일을 두 담당자가 수정하지 않는다. 담당자 4는 실제 실행 결과를 확인한 후에만 완료로 표시한다.
+소유 경로 밖의 파일은 수정하지 않는다. 필요하면 소유자에게 변경을 요청한다. Dockerfile은 각 서비스 경로(`services/*/Dockerfile`)이므로 해당 서비스 소유자가 소유한다.
+
+### 담당자 4 작업 목록 (Aspire 배포)
+
+1. AppHost 패키지·SDK를 `aspire deploy`와 Azure Container Apps 대상을 지원하는 공식 문서 기준 버전으로 올리고 빌드한다. 현재 `Aspire.Hosting` 9.0.0, `net9.0`은 지원 여부를 확인하지 않았다.
+2. AppHost에 Azure Container Apps 환경을 추가한다. 이 환경이 없으면 `aspire deploy`는 아무 작업도 하지 않는다.
+3. 현재 `AddExecutable`(`mvn`, `python`) 서비스를 Dockerfile 기반 컨테이너 리소스로 바꾼다. Dockerfile은 저장소 루트를 빌드 컨텍스트로 가정한다.
+4. 웹은 정적 웹사이트로 게시하고 `/api`를 API로 프록시한다. 외부 공개 엔드포인트는 웹만 둔다. 이 게시 API는 공식 문서에서 실험적이므로 동작을 검증한다.
+5. PostgreSQL을 배포 시 관리형 서비스로 모델링하고 TLS·네트워크 접근 범위를 검증한다.
+6. Copilot 토큰을 비밀 매개변수로 선언하고 Agent에 환경 변수로 주입한다.
+7. `aspire deploy`를 사전 검증한다. Azure 자격 증명이 없으면 검증하지 못한 범위를 보고하고 배포가 끝났다고 말하지 않는다.
+8. 최소 CI(`.github/workflows`)를 추가한다: 프런트엔드 빌드, `pytest`, `mvn test`(api·mcp), AppHost 빌드.
+9. Aspire 배포가 검증된 뒤 `infra/main.bicep` 처리를 결정한다. 그 전에는 삭제하지 않고, 이 파일로 배포했다고 보고하지 않는다.
+
+다른 담당자에게 요청할 변경:
+
+- 담당자 3: `frontend/vite.config.ts`의 `/api` 프록시를 Aspire가 주입하는 API 주소로 바꾼다 (현재 `localhost:8081` 고정).
+- 담당자 1: 관리형 Azure PostgreSQL 연결에 필요한 TLS 옵션을 `DataSourceConfiguration`에 반영한다.
+- 담당자 1·2: 각 Dockerfile이 Aspire 컨테이너 리소스에서 빌드되는지 확인한다.
+
+## 브랜치·PR 절차
+
+1. 시작 전에 `git switch main && git pull`로 최신 `main`을 받는다.
+2. 자기 영역 브랜치를 `main`에서 만든다.
+   - `feat/api-<주제>`, `feat/agent-<주제>`, `feat/frontend-<주제>`, `feat/aspire-<주제>`
+   - 문서만 바꾸면 `docs/<주제>`
+3. 소유 경로의 변경만 커밋한다. 커밋 전에 `git status --short`와 `git diff --check`로 다른 영역의 변경이 섞이지 않았는지 확인한다.
+4. 커밋 제목은 `feat(api): ...`, `fix(frontend): ...`, `docs: ...` 형식을 따른다.
+5. 자기 브랜치를 원격에 push하고 `main` 대상 PR을 만든다. PR 본문에는 영향받는 경로, 실행한 테스트와 결과, 못 돌린 검증을 적는다.
+6. 리뷰어는 다음과 같다.
+   - 계약(`openapi.yaml`, API→Agent, MCP 도구)이 바뀌면 소비 측 담당자
+   - 그 외에는 담당자 4
+7. `main`에 직접 push하지 않는다. 강제 push하지 않는다. `main`이 앞서 있으면 `git fetch origin` 후 `origin/main`을 자기 브랜치에 병합하고 충돌을 해결한 뒤 push한다.
+
+각자 자기 PC에서 자기 브랜치를 작업하므로 커밋과 push는 서로 기다리지 않고 병렬로 한다. 같은 브랜치를 두 사람이 쓰지 않는다.
+
+## 서비스 간 계약과 변경 절차
+
+| 경계 | 계약 | 소유 |
+|---|---|---|
+| Web → API | `shared/openapi.yaml`, 모든 요청에 `X-Demo-Session-Id` 헤더 | 담당자 1 |
+| API → Agent | `POST /api/jobs/analyze` (TRD §3) | 담당자 2 |
+| Agent → MCP | 4개 MCP 도구의 이름·인자·응답 | 담당자 2 |
+
+계약을 바꾸는 사람은 소유자가 먼저 PR을 올리고 머지한 뒤에만 소비 측이 따라간다. 점수 가중치를 바꿀 때는 코드, 테스트, `PRD.md` PR-03을 같은 PR에서 함께 바꾼다.
+
+## 병렬 작업 규칙
+
+| 항목 | 규칙 |
+|---|---|
+| 담당자 1·2·3 개발 | 병렬 진행. 소유 경로가 겹치지 않는다 |
+| 같은 파일 | 동시에 수정하지 않는다 |
+| 담당자 4 인프라 작업 | 담당자 1~3과 병렬로 시작할 수 있다 (AppHost 업그레이드, ACA 환경, CI) |
+| 담당자 4 통합·E2E | 담당자 1~3의 PR이 머지된 뒤에 수행한다 |
+| 문서 변경 | 담당자 4가 영향 범위(상위→하위 문서)를 확인한다 |
 
 ## 현재 변경 내용
 
 - 프런트엔드는 요청 분석, 결과 확인, 농가 승인, 구직자 수락, 상태 조회를 API에 연결했다.
 - API는 브라우저 데모 세션별 작업과 승인 상태를 관리하고 H2/PostgreSQL 저장을 추가했다.
-- Agent는 Copilot SDK 분석과 Microsoft Agent Framework 순차 흐름을 구성하고, MCP 서버의 후보·점수·안전 도구를 호출하도록 변경했다.
-- MCP 점수와 테스트를 추가했다.
-- 문서, OpenAPI, Aspire AppHost, Azure Bicep, 서비스 Dockerfile이 함께 변경됐다.
-
-모든 변경은 아직 통합 검증이 필요한 작업본이다. 팀원이 이어받을 기능 브랜치는 `feat/mvp-matching-flow`다. 담당자별 기능 커밋과 필요한 문서 커밋으로 정리한 뒤 이 브랜치를 원격에 push한다. 커밋 전에는 `git status --short`와 `git diff --check`로 다른 담당자의 미완료 변경을 확인한다.
-
-### 원격에 push한 기준 커밋
-
-2026-11-05에 `origin/feat/mvp-matching-flow`로 push했다. 팀원은 저장소에서 다음 명령으로 가져온다.
-
-```powershell
-git fetch origin
-git switch --track origin/feat/mvp-matching-flow
-```
-
-브랜치를 이미 체크아웃했다면 `git pull`로 최신 변경을 받는다.
-
-| 커밋 | 영역 |
-|---|---|
-| `037613e` | API, 세션 저장, OpenAPI |
-| `ecea022` | Agent와 MCP |
-| `4e6d4a3` | 프런트엔드 |
-| `320d537` | Aspire와 Azure 리소스 |
-| `d227868` | 제품 문서와 인계 문서 |
+- Agent는 Copilot SDK 분석과 Microsoft Agent Framework 순차 흐름을 구성하고, MCP 서버의 후보·점수·안전 도구를 호출한다.
+- MCP 점수 계산과 테스트가 있다.
+- 이 변경은 모두 `main`에 머지됐으나 통합 검증은 끝나지 않았다.
 
 ## 검증 현황 및 명령
 
-프런트엔드 프로덕션 빌드와 Python 구문 검사는 통과했다. Agent 테스트, Java API/MCP 테스트, Aspire 빌드, Bicep 검증, E2E는 완료로 확인되지 않았다. 프런트엔드 의존성 설치는 실행됐으며 npm이 4건의 취약점(중간 3, 높음 1)을 보고했다. 의존성 자동 업그레이드는 범위 검토 없이 적용하지 않는다.
+2026-11-05 기준 이전 기록: 프런트엔드 프로덕션 빌드와 Python 구문 검사는 통과했다. Agent 테스트, Java API/MCP 테스트, Aspire 빌드, E2E, Azure 배포는 확인되지 않았다. 점수 가중치 중 작업 종류 25점은 코드로 확인하지 않았다. 프런트엔드 의존성 설치 시 npm이 취약점 4건(중간 3, 높음 1)을 보고했으며, 범위 검토 없이 자동 업그레이드하지 않는다.
 
-```powershell
+```bash
 # 프런트엔드
-Set-Location frontend
-npm.cmd run build
+npm --prefix frontend run build
 
-# Python Agent
-Set-Location services\agent
-python -m pytest -q
+# Python Agent (services/agent에서 pip install -e ".[dev]" 후)
+(cd services/agent && python -m pytest -q)
 
-# Java 서비스: Java 21과 Maven이 준비된 환경에서 실행
-Set-Location ..\..
-mvn -f services\api\pom.xml test
-mvn -f services\mcp-server\pom.xml test
+# Java 서비스 (Java 21과 Maven 필요)
+mvn -f services/api/pom.xml test
+mvn -f services/mcp-server/pom.xml test
 
-# Aspire: .NET SDK가 준비된 환경에서 실행
-dotnet build aspire\AppHost\AppHost.csproj
+# Aspire (.NET SDK 필요, 담당자 4가 SDK 버전 확정 후)
+dotnet build aspire/AppHost/AppHost.csproj
 
 # 최종 변경 검사
 git diff --check
 git status --short
 ```
 
-현재 개발 환경에는 Java 21과 .NET SDK가 확인되지 않았다. Maven CLI는 PATH에 없지만 로컬 Maven 3.9.9 배포본은 있으며, 기본 Java는 17이라 Java 21 프로젝트 테스트를 아직 실행할 수 없다. Python 테스트 의존성 설치는 완료 전에 중단했으므로 pytest를 설치한 뒤 실행 결과를 기록한다.
-
-## 커밋·원격 반영 절차
-
-1. 각 담당자는 소유 경로의 변경과 검증 결과를 담당자 4에게 전달한다. 공용 세션에서 작업한다면 파일을 겹쳐 수정하지 않고 커밋도 동시에 실행하지 않는다.
-2. 담당자 4가 `git diff --check`, 기능별 테스트, 전체 `git status`를 확인한다.
-3. 변경을 기능별로 분리해 커밋한다. 권장 제목:
-   - `feat(api): persist demo sessions and enforce match approvals`
-   - `feat(agent): structure job requests and orchestrate matching tools`
-   - `feat(frontend): connect farmer and worker matching flow`
-   - `feat(aspire): configure the verified Azure deployment path`
-   - 필요하면 문서 변경을 별도 `docs: document implementation and deployment handoff` 커밋으로 분리한다.
-4. 코드 변경은 테스트 결과를, 인프라 변경은 선택된 배포 타깃과 검증 범위를 커밋 설명에 남긴다. 저장소의 커밋 규칙에 따라 Co-authored-by trailer를 포함한다.
-5. 후속 기능 브랜치에서 `git fetch origin`으로 최신 기준을 확인하고, `feat/mvp-matching-flow`에 새 커밋을 push한다. `main`에 직접 push하지 않는다. 원격에 새 커밋이 있으면 강제 push하지 말고 먼저 통합한다.
+Windows에서는 `npm.cmd run build`, `Set-Location`을 사용한다. 이 개발 환경에는 Java 21과 .NET SDK가 확인되지 않았다. 각 담당자는 자기 영역의 테스트 환경을 먼저 갖추고 결과를 PR에 기록한다.
 
 ## 보안·배포 주의
 
-- 이 저장소에는 실제 사람의 정보나 실제 비밀값을 넣지 않는다.
-- Azure DB에 대한 현재 Bicep 네트워크 설정은 공개 접근을 포함할 수 있으므로 실제 공개 서비스 전에 네트워크 경계를 검토한다.
-- Dockerfile을 유지한다면 ACA가 이미지를 가져올 레지스트리와 이미지 게시 절차를 함께 검증한다.
-- Aspire를 배포 경로로 선택한다면 설치된 Aspire 버전·Azure 타깃 패키지·Java/Python/NPM 리소스 지원을 공식 문서와 실제 배포 전 검증으로 확인한다.
-- 성공적인 로컬 빌드는 Azure 배포 성공의 증거가 아니다. 배포 자격 증명 없이 Azure 배포가 끝났다고 주장하지 않는다.
+- 실제 사람의 정보나 실제 비밀값을 저장소에 넣지 않는다. 배포 값은 `aspire secret` 또는 CI 비밀 저장소로만 전달한다.
+- 배포 후 관리형 PostgreSQL의 네트워크 접근 범위를 점검한다. 공개 서비스 전에 경계를 검토한다.
+- 웹만 외부에 노출하고 API·Agent·MCP는 내부 접근이어야 한다(TRD TR-09).
+- Aspire 배포를 검증하기 전에 `infra/main.bicep`을 배포 경로로 사용하지 않는다. 두 경로를 혼합하지 않는다.
+- 공개 데모는 로그인 없이 쓸 수 있어야 하므로, 실제 업무 데이터나 민감한 작업을 노출하지 않는다.

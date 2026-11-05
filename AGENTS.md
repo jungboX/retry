@@ -19,8 +19,8 @@
 - `services/agent`: Python Microsoft Agent Framework. Agent와 순차 워크플로우를 담당한다.
 - GitHub Copilot SDK와 Microsoft Agent Framework는 해커톤 평가에 필요한 별도 기술이다. SDK를 범용 모델 추상화 계층이라고 단정하지 말고, 각 기술의 실제 역할과 연동 가능성을 확인한다.
 - `services/mcp-server`: Java Spring AI 2.0.2 MCP Server. 후보 조회, 안전 검토, 점수 계산 도구를 제공한다.
-- `aspire`: 로컬 서비스 실행·연결, health check, end-to-end trace를 담당한다.
-- `infra`: Azure 배포 리소스를 정의한다.
+- `aspire`: 로컬 서비스 실행·연결, health check, end-to-end trace, `aspire deploy` 기반 Azure 배포를 담당한다.
+- `infra`: `aspire deploy` 전환 후 남은 이전 Bicep 산출물이다. Aspire 배포가 검증되기 전에는 삭제하지 않고, 이것으로 배포했다고 보고하지 않는다.
 
 ## 제품 문서 규칙
 
@@ -56,7 +56,7 @@
 - 구직자 수락 전에는 매칭을 확정하지 않는다.
 - 농가 승인과 구직자 수락이 모두 완료된 경우에만 `CONFIRMED`로 변경한다.
 - 모든 승인 실패와 중복 승인 요청은 안전하게 처리한다.
-- 해커톤 심사 앱은 Azure 기본 도메인으로 배포하고, 심사자가 로그인 없이 핵심 흐름을 사용할 수 있어야 한다.
+- 해커톤 심사 앱은 Azure 기본 도메인으로 `aspire deploy`로 배포하고, 심사자가 로그인 없이 핵심 흐름을 사용할 수 있어야 한다.
 
 ## 데이터 규칙
 
