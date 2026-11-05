@@ -1,4 +1,4 @@
-import type { DemoState, JobAnalysisResponse, Match } from '../types';
+import type { DemoState, JobAnalysisResponse, JobRequest, JobStatus, Match } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const SESSION_STORAGE_KEY = 'cheongdo-demo-session';
@@ -38,7 +38,13 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(payload),
   }),
-  createJob: (analysisId: string) => request<{ id: string; status: string; matches: Match[]; job: Record<string, unknown> }>(`/api/jobs`, {
+  createJob: (analysisId: string) => request<{
+    id: string;
+    status: JobStatus;
+    matches: Match[];
+    job: JobRequest;
+    safetyConfirmed: boolean;
+  }>(`/api/jobs`, {
     method: 'POST',
     body: JSON.stringify({ analysisId }),
   }),
