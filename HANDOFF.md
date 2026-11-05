@@ -33,7 +33,7 @@
 
 1. (완료) AppHost를 Aspire 13.6.4, .NET 10 SDK(`net10.0`)로 올리고 빌드했다. .NET 10 SDK와 Aspire CLI(`dotnet tool install -g Aspire.Cli`)가 필요하다.
 2. (완료) AppHost에 Azure Container Apps 환경(`aca-env`)을 추가했다. `aspire publish`로 Bicep 생성을 확인했고 외부 ingress는 게이트웨이뿐이다.
-3. (완료) API·Agent·MCP를 `AddDockerfile` 컨테이너 리소스로 바꿨다. 빌드 컨텍스트는 저장소 루트다. 이미지 빌드 자체는 Dockerfile 소유자(담당자 1·2)가 검증한다.
+3. (완료) API·Agent·MCP를 `AddDockerfile` 컨테이너 리소스로 바꿨다. 빌드 컨텍스트는 저장소 루트다. 로컬에서 세 이미지 모두 빌드된다.
 4. (모델 완료, 실배포 미검증) YARP 게이트웨이가 정적 파일을 서빙하고 `/api`를 API로 프록시한다. 외부 공개 엔드포인트는 게이트웨이뿐이다. 이 게시 API는 공식 문서에서 실험적이므로 첫 실배포에서 검증한다.
 5. (모델 완료, TLS·네트워크 미검증) PostgreSQL을 로컬은 컨테이너, Azure는 관리형 Flexible Server로 모델링했다. 배포 후 TLS·네트워크 접근 범위를 검증한다.
 6. (완료) Copilot 토큰을 비밀 매개변수 `copilotGithubToken`으로 선언하고 Agent에 `COPILOT_GITHUB_TOKEN`으로 주입한다.
@@ -47,7 +47,30 @@
 - 담당자 1: 관리형 Azure PostgreSQL TLS는 PR #2로 반영됐다(`DataSourceConfiguration`). 배포 후 실제 연결만 확인한다.
 - 담당자 1·2: 각 Dockerfile이 Aspire 컨테이너 리소스에서 빌드되는지 확인한다.
 - 담당자 1: 완료. PR #2로 Azure PostgreSQL TLS가 반영됐고 `mvn test`(16개)가 통과한다.
-- 담당자 2: `services/mcp-server/pom.xml`에 테스트 의존성(`spring-boot-starter-test`)이 없어 `MatchToolsTest`가 실행되지 않는다(`mvn test`가 0개 실행으로 끝남). 의존성을 추가하고 테스트가 실제로 돌아가는지 확인한다.
+- (완료) `services/mcp-server/pom.xml`에 `spring-boot-starter-test`를 추가했다. 깨끗한 빌드에서 테스트 3개가 통과하고 Docker 이미지가 빌드된다.
+
+## 배포 인수인계 (배포 담당자용)
+
+Azure 계정을 가진 사람이 배포한다. 아래 전제가 모두 충족된 뒤에 시작한다.
+
+**전제 조건**
+
+- 세 이미지(`services/*/Dockerfile`)가 저장소 루트 컨텍스트에서 `docker build`로 성공하는지 배포 직전에 다시 확인한다.
+- Azure 구독(크레딧 확인), 예산 알림 설정.
+- 설치: Azure CLI(`az`), Docker(실행 중), .NET 10 SDK, Aspire CLI.
+- 배포 실행자가 발급한 Copilot 토큰. 저장소·채팅·제출물에 넣지 않는다. `aspire deploy` 프롬프트나 `aspire secret`에 터미널에서 직접 입력한다.
+
+**실행**: 명령은 TRD §10을 따른다. 리전은 배포자가 정하되 Postgres Flexible Server를 지원하는 지역이어야 한다(미지원이면 다른 리전).
+
+**배포 후 확인 항목** (확인 결과를 이 문서에 기록한다)
+
+1. 게이트웨이 URL(`*.azurecontainerapps.io`)에서 프런트엔드가 뜨고 `/api/demo/state`가 응답하는지.
+2. API, Agent, MCP의 외부 주소가 닫혀 있는지 (외부 ingress는 게이트웨이뿐).
+3. API가 관리형 Postgres에 TLS로 연결되고 재시작 후에도 데이터가 보존되는지, Postgres 네트워크 접근 범위.
+4. Agent가 컨테이너에서 Copilot 토큰으로 비대화형 호출에 성공하는지 (한 번 `/api/jobs/analyze` 호출).
+5. 농가 요청부터 `CONFIRMED`까지 한 흐름이 완료되는지.
+
+**정리**: 심사가 끝나면 `az group delete`로 리소스 그룹을 삭제한다(삭제 전 대상 확인). 비용 추정은 앱 4개가 `minReplicas: 1`인 상시 가동이므로 무료 사용량을 넘을 수 있다. 배포 전 Azure 가격 계산기로 확인한다.
 
 ## 브랜치·PR 절차
 
@@ -95,7 +118,7 @@
 
 ## 검증 현황 및 명령
 
-2026-11-05 `feat/aspire-deploy` 기준 확인 결과: 프런트엔드 `npm ci`·프로덕션 빌드, AppHost `dotnet build`, `aspire publish`(Bicep 생성, 외부 ingress는 게이트웨이뿐)는 통과했다. **api `mvn test`는 16개가 통과한다(PR #2 반영 후). mcp-server는 테스트 의존성이 pom에 없어 테스트가 0개 실행된다.** Dockerfile 이미지 빌드는 확인하지 않았다. Agent 테스트(`uv`가 이 PC에 없어 미실행), E2E, `aspire deploy`는 확인하지 않았다. 점수 가중치 중 작업 종류 25점은 코드로 확인하지 않았다. 프런트엔드 의존성 설치 시 npm이 취약점 4건(중간 3, 높음 1)을 보고했으며, 범위 검토 없이 자동 업그레이드하지 않는다.
+2026-11-05 `feat/aspire-deploy` 기준 확인 결과: 프런트엔드 `npm ci`·프로덕션 빌드, AppHost `dotnet build`, `aspire publish`(Bicep 생성, 외부 ingress는 게이트웨이뿐)는 통과했다. **api `mvn test` 16개, mcp-server `mvn clean test` 3개가 통과한다.** Docker 이미지 빌드: agent, api, mcp-server 모두 성공했다. Agent 테스트(`uv`가 이 PC에 없어 미실행), E2E, `aspire deploy`는 확인하지 않았다. 점수 가중치 중 작업 종류 25점은 코드로 확인하지 않았다. 프런트엔드 의존성 설치 시 npm이 취약점 4건(중간 3, 높음 1)을 보고했으며, 범위 검토 없이 자동 업그레이드하지 않는다.
 
 ```bash
 # 프런트엔드

@@ -2,7 +2,9 @@ package com.retry.api.config;
 
 import java.util.Arrays;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -15,6 +17,11 @@ public class WebConfig implements WebMvcConfigurer {
             .map(String::trim)
             .filter(origin -> !origin.isEmpty())
             .toArray(String[]::new);
+    }
+
+    @Bean
+    RestClient.Builder restClientBuilder() {
+        return RestClient.builder();
     }
 
     @Override
