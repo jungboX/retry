@@ -126,7 +126,7 @@ export function FarmerDemoPage() {
         <p>작업 조건을 자연어로 적어 주세요. 데모 승인과 수락은 실제 고용 계약이나 연락을 만들지 않습니다.</p>
         <label htmlFor="job-request">작업 요청</label>
         <textarea id="job-request" rows={5} value={rawRequest} onChange={(event) => setRawRequest(event.target.value)} />
-        <div className="row" style={{ marginTop: 16 }}>
+        <div className="row row-actions">
           <button type="button" onClick={analyze} disabled={busy || !rawRequest.trim()}>
             {busy ? '분석 중…' : 'AI 조건 분석'}
           </button>
