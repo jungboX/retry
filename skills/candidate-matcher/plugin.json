@@ -1,0 +1,6 @@
+{
+  "name": "candidate-matcher",
+  "description": "농가 작업에 적합한 구직자를 찾고, 점수를 계산하며 추천 이유를 설명하는 스킬입니다.",
+  "version": "0.1.0",
+  "skills": "./"
+}

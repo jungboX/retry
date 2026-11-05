@@ -1,9 +1,12 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import tempfile
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -30,13 +33,94 @@ class JobRegistrationAgent:
 
     def __init__(self, model: str | None = None) -> None:
         self.model = model or os.getenv("MODEL_NAME")
+        base_directory = os.getenv("COPILOT_BASE_DIR") or os.path.join(
+            tempfile.gettempdir(), "retry-copilot"
+        )
+        Path(base_directory).mkdir(parents=True, exist_ok=True)
+        self.base_directory = base_directory
+
+    @staticmethod
+    def _fallback_parse(raw_request: str) -> dict[str, Any]:
+        text = raw_request.strip()
+        if not text:
+            raise ValueError("작업 요청을 입력해 주세요.")
+
+        result: dict[str, Any] = {
+            "workType": None,
+            "location": None,
+            "startDate": None,
+            "endDate": None,
+            "workersNeeded": None,
+            "dailyPay": None,
+            "mealProvided": False,
+            "hazardFlags": [],
+            "missingFields": [],
+        }
+
+        known_work_types = [
+            "복숭아 적과",
+            "수확 보조",
+            "과수 작업",
+            "농기계 작업",
+            "비닐하우스 관리",
+            "포장 정리",
+        ]
+        for candidate in known_work_types:
+            if candidate in text:
+                result["workType"] = candidate
+                break
+        if result["workType"] is None:
+            work_match = re.search(r"([가-힣A-Za-z0-9]+(?:\s+[가-힣A-Za-z0-9]+)*)\s*작업", text)
+            if work_match:
+                result["workType"] = work_match.group(1).strip()
+
+        location_match = re.search(r"(청도[가-힣]+(?:면|동|읍|리|구|시|군)?)", text)
+        if location_match:
+            result["location"] = location_match.group(1).strip()
+
+        year = datetime.now(ZoneInfo("Asia/Seoul")).year
+        date_parts: list[date] = []
+        for month, day in re.findall(r"(\d{1,2})월\s*(\d{1,2})일", text):
+            try:
+                date_parts.append(date(year, int(month), int(day)))
+            except ValueError:
+                continue
+        if date_parts:
+            result["startDate"] = min(date_parts).isoformat()
+            result["endDate"] = max(date_parts).isoformat()
+
+        workers_match = re.search(r"(\d+)\s*명", text)
+        if workers_match:
+            result["workersNeeded"] = int(workers_match.group(1))
+
+        pay_match = re.search(r"(\d[\d,]*)\s*원", text)
+        if pay_match:
+            result["dailyPay"] = int(pay_match.group(1).replace(",", ""))
+
+        if "식사 제공" in text or ("식사" in text and "제공" in text):
+            result["mealProvided"] = True
+
+        hazard_keywords = {
+            "농기계": "농기계",
+            "안전 점검": "안전 점검",
+            "농약": "농약",
+            "사다리": "사다리",
+            "고소": "고소",
+        }
+        for keyword, label in hazard_keywords.items():
+            if keyword in text:
+                result["hazardFlags"].append(label)
+        result["hazardFlags"] = list(dict.fromkeys(result["hazardFlags"]))
+
+        return result
 
     async def run(self, raw_request: str) -> dict[str, Any]:
         if not raw_request.strip():
             raise JobAnalysisError("작업 요청을 입력해 주세요.")
 
+        logger = logging.getLogger(__name__)
         try:
-            async with CopilotClient(mode="empty") as client:
+            async with CopilotClient(mode="empty", base_directory=self.base_directory) as client:
                 session_options: dict[str, Any] = {
                     "available_tools": [],
                     "system_message": {
@@ -52,7 +136,11 @@ class JobRegistrationAgent:
                 async with await client.create_session(**session_options) as session:
                     reply = await session.send_and_wait(raw_request)
         except Exception as error:
-            raise JobAnalysisError("AI 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.") from error
+            logger.warning("Copilot agent analysis failed; using deterministic fallback parser. %s", error)
+            try:
+                return self._validate(self._fallback_parse(raw_request))
+            except ValueError as fallback_error:
+                raise JobAnalysisError("AI 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.") from fallback_error
 
         if reply is None or not isinstance(reply.data, AssistantMessageData):
             raise JobAnalysisError("AI 분석 결과를 받지 못했습니다. 다시 시도해 주세요.")
