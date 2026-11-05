@@ -2,18 +2,19 @@ package com.retry.api.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.databind.json.JsonMapper;
 
 class DemoSessionStoreTest {
     private DemoSessionStore store;
@@ -31,17 +32,17 @@ class DemoSessionStoreTest {
                 last_access TIMESTAMP WITH TIME ZONE NOT NULL
             )
             """);
-        store = new DemoSessionStore(jdbc, new ObjectMapper().findAndRegisterModules());
+        store = new DemoSessionStore(jdbc, JsonMapper.builder().findAndAddModules().build());
     }
 
     @Test
     void confirmsOnlyAfterBothPartiesApprove() {
         UUID sessionId = UUID.randomUUID();
-        String analysisId = store.saveAnalysis(sessionId, "복숭아 적과", analysis(List.of(), List.of()));
+        String analysisId = store.saveAnalysis(sessionId, analysis(List.of(), List.of()));
         Map<String, Object> created = store.createJob(sessionId, analysisId);
         @SuppressWarnings("unchecked")
         List<DemoSessionStore.Match> matches = (List<DemoSessionStore.Match>) created.get("matches");
-        DemoSessionStore.Match candidate = matches.getFirst();
+        DemoSessionStore.Match candidate = matches.get(0);
 
         assertEquals("FARMER_APPROVED", store.farmerApprove(sessionId, candidate.id()).status());
         assertEquals("CONFIRMED", store.workerAccept(sessionId, candidate.id()).status());
@@ -50,9 +51,9 @@ class DemoSessionStoreTest {
     @Test
     void rejectsWorkerAcceptanceBeforeFarmerApproval() {
         UUID sessionId = UUID.randomUUID();
-        String analysisId = store.saveAnalysis(sessionId, "복숭아 적과", analysis(List.of(), List.of()));
+        String analysisId = store.saveAnalysis(sessionId, analysis(List.of(), List.of()));
         store.createJob(sessionId, analysisId);
-        DemoSessionStore.Match match = store.matches(sessionId, store.getState(sessionId).getJobId()).getFirst();
+        DemoSessionStore.Match match = store.matches(sessionId, store.getState(sessionId).getJobId()).get(0);
 
         ResponseStatusException exception = assertThrows(
             ResponseStatusException.class,
@@ -60,14 +61,14 @@ class DemoSessionStoreTest {
         );
 
         assertEquals(409, exception.getStatusCode().value());
-        assertFalse(store.matches(sessionId, match.jobId()).getFirst().workerAccepted());
+        assertFalse(store.matches(sessionId, match.jobId()).get(0).workerAccepted());
     }
 
     @Test
     void isolatesDemoStateBetweenSessions() {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
-        String analysisId = store.saveAnalysis(first, "요청", analysis(List.of(), List.of()));
+        String analysisId = store.saveAnalysis(first, analysis(List.of(), List.of()));
         store.createJob(first, analysisId);
 
         assertTrue(store.getState(first).getJobId() != null);
@@ -81,9 +82,9 @@ class DemoSessionStoreTest {
     @Test
     void requiresSafetyAcknowledgementForHazardousJobs() {
         UUID sessionId = UUID.randomUUID();
-        String analysisId = store.saveAnalysis(sessionId, "농기계 작업", analysis(List.of("농기계"), List.of()));
+        String analysisId = store.saveAnalysis(sessionId, analysis(List.of("농기계"), List.of()));
         store.createJob(sessionId, analysisId);
-        DemoSessionStore.Match match = store.matches(sessionId, store.getState(sessionId).getJobId()).getFirst();
+        DemoSessionStore.Match match = store.matches(sessionId, store.getState(sessionId).getJobId()).get(0);
 
         assertThrows(ResponseStatusException.class, () -> store.farmerApprove(sessionId, match.id()));
         store.confirmSafety(sessionId, match.jobId(), true);
@@ -93,7 +94,7 @@ class DemoSessionStoreTest {
     @Test
     void refusesToCreateJobWhenRequiredConditionsAreMissing() {
         UUID sessionId = UUID.randomUUID();
-        String analysisId = store.saveAnalysis(sessionId, "조건이 빠진 요청", Map.of(
+        String analysisId = store.saveAnalysis(sessionId, Map.of(
             "job", Map.of("missingFields", List.of("dailyPay")),
             "missingFields", List.of("dailyPay"),
             "recommendedWorkers", List.of()
@@ -105,17 +106,59 @@ class DemoSessionStoreTest {
     @Test
     void restoresSessionStateFromDatabase() {
         UUID sessionId = UUID.randomUUID();
-        String analysisId = store.saveAnalysis(sessionId, "복숭아 적과", analysis(List.of(), List.of()));
+        String analysisId = store.saveAnalysis(sessionId, analysis(List.of(), List.of()));
         store.createJob(sessionId, analysisId);
         String jobId = store.getState(sessionId).getJobId();
 
         var reopenedStore = new DemoSessionStore(
             new JdbcTemplate(new DriverManagerDataSource(databaseUrl, "sa", "")),
-            new ObjectMapper().findAndRegisterModules()
+            JsonMapper.builder().findAndAddModules().build()
         );
 
         assertEquals(jobId, reopenedStore.getState(sessionId).getJobId());
         assertEquals(1, reopenedStore.matches(sessionId, jobId).size());
+    }
+
+    @Test
+    void rejectsNonPositiveJobConditions() {
+        UUID sessionId = UUID.randomUUID();
+        Map<String, Object> analysis = new java.util.HashMap<>(analysis(List.of(), List.of()));
+        Map<String, Object> job = new java.util.HashMap<>(objectMap(analysis.get("job")));
+        job.put("workersNeeded", 0);
+        analysis.put("job", job);
+        String analysisId = store.saveAnalysis(sessionId, analysis);
+
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> store.createJob(sessionId, analysisId)
+        );
+
+        assertEquals(422, exception.getStatusCode().value());
+    }
+
+    @Test
+    void doesNotAllowSafetyConfirmationToBeRevokedAfterFarmerApproval() {
+        UUID sessionId = UUID.randomUUID();
+        String analysisId = store.saveAnalysis(sessionId, analysis(List.of("농기계"), List.of()));
+        Map<String, Object> created = store.createJob(sessionId, analysisId);
+        @SuppressWarnings("unchecked")
+        List<DemoSessionStore.Match> matches = (List<DemoSessionStore.Match>) created.get("matches");
+        DemoSessionStore.Match match = matches.get(0);
+        store.confirmSafety(sessionId, match.jobId(), true);
+        store.farmerApprove(sessionId, match.id());
+
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> store.confirmSafety(sessionId, match.jobId(), false)
+        );
+
+        assertEquals(409, exception.getStatusCode().value());
+        assertEquals("CONFIRMED", store.workerAccept(sessionId, match.id()).status());
+    }
+
+    @Test
+    void reportsEmptyJobAsNullInDemoState() {
+        assertNull(store.getState(UUID.randomUUID()).getJob());
     }
 
     private Map<String, Object> analysis(List<String> hazardFlags, List<Map<String, Object>> candidates) {
@@ -138,5 +181,11 @@ class DemoSessionStoreTest {
                 ? List.of(Map.of("workerId", "worker-01", "nickname", "데모 구직자", "score", 87, "scoreReasons", List.of("일정 일치")))
                 : candidates
         );
+    }
+
+    private static Map<String, Object> objectMap(Object value) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> map = (Map<String, Object>) value;
+        return map;
     }
 }

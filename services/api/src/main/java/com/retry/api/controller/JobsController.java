@@ -4,11 +4,11 @@ import com.retry.api.service.AgentClient;
 import com.retry.api.service.DemoSessionStore;
 import com.retry.api.service.DemoSessionStore.DemoState;
 import com.retry.api.service.DemoSessionStore.Match;
-import com.retry.api.service.DemoSessionStore.PendingAnalysis;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -39,7 +39,7 @@ public class JobsController {
         @Valid @RequestBody JobAnalysisRequest request
     ) {
         Map<String, Object> analysis = agentClient.analyze(request.rawRequest());
-        String analysisId = sessions.saveAnalysis(sessionId, request.rawRequest(), analysis);
+        String analysisId = sessions.saveAnalysis(sessionId, analysis);
         return Map.of("analysisId", analysisId, "analysis", analysis);
     }
 
@@ -90,7 +90,7 @@ public class JobsController {
         return sessions.getState(sessionId);
     }
 
-    public record JobAnalysisRequest(@NotBlank String rawRequest) {}
+    public record JobAnalysisRequest(@NotBlank @Size(max = 4_000) String rawRequest) {}
 
     public record JobCreateRequest(@NotBlank String analysisId) {}
 
