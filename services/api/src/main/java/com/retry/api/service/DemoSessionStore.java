@@ -131,7 +131,12 @@ public class DemoSessionStore {
             Match current = state.matches.get(matchId);
             Match updated = current.withFarmerApproved(true);
             state.matches.put(matchId, updated);
-            persist(sessionId, state);
+            try {
+                persist(sessionId, state);
+            } catch (RuntimeException exception) {
+                state.matches.put(matchId, current);
+                throw exception;
+            }
             return updated;
         }
     }
@@ -148,7 +153,12 @@ public class DemoSessionStore {
             }
             Match updated = current.withWorkerAccepted(true);
             state.matches.put(matchId, updated);
-            persist(sessionId, state);
+            try {
+                persist(sessionId, state);
+            } catch (RuntimeException exception) {
+                state.matches.put(matchId, current);
+                throw exception;
+            }
             return updated;
         }
     }

@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import tempfile
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -74,28 +74,32 @@ class JobRegistrationAgent:
             if work_match:
                 result["workType"] = work_match.group(1).strip()
 
-        location_match = re.search(r"(청도[가-힣]+(?:면|동|읍|리|구|시|군)?)", text)
+        location_match = re.search(r"(청도(?:군)?\s*[가-힣]*?(?:면|동|읍|리|구|시|군))", text)
         if location_match:
-            result["location"] = location_match.group(1).strip()
+            result["location"] = re.sub(r"\s+", " ", location_match.group(1).strip())
 
-        year = datetime.now(ZoneInfo("Asia/Seoul")).year
-        date_parts: list[date] = []
-        for month, day in re.findall(r"(\d{1,2})월\s*(\d{1,2})일", text):
-            try:
-                date_parts.append(date(year, int(month), int(day)))
-            except ValueError:
-                continue
-        if date_parts:
-            result["startDate"] = min(date_parts).isoformat()
-            result["endDate"] = max(date_parts).isoformat()
+        today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+        start_date, end_date = JobRegistrationAgent._extract_dates(text, today)
+        if start_date is not None and end_date is not None:
+            result["startDate"] = start_date.isoformat()
+            result["endDate"] = end_date.isoformat()
 
         workers_match = re.search(r"(\d+)\s*명", text)
         if workers_match:
             result["workersNeeded"] = int(workers_match.group(1))
 
-        pay_match = re.search(r"(\d[\d,]*)\s*원", text)
+        pay_match = re.search(
+            r"(?:(?P<man>\d[\d,]*)\s*만\s*(?:(?P<thousand>\d[\d,]*)\s*천\s*)?원|"
+            r"(?P<won>\d[\d,]*)\s*원)",
+            text,
+        )
         if pay_match:
-            result["dailyPay"] = int(pay_match.group(1).replace(",", ""))
+            if pay_match.group("man") is not None:
+                man = int(pay_match.group("man").replace(",", ""))
+                thousand = int((pay_match.group("thousand") or "0").replace(",", ""))
+                result["dailyPay"] = man * 10_000 + thousand * 1_000
+            else:
+                result["dailyPay"] = int(pay_match.group("won").replace(",", ""))
 
         if "식사 제공" in text or ("식사" in text and "제공" in text):
             result["mealProvided"] = True
@@ -113,6 +117,79 @@ class JobRegistrationAgent:
         result["hazardFlags"] = list(dict.fromkeys(result["hazardFlags"]))
 
         return result
+
+    @staticmethod
+    def _extract_dates(text: str, today: date) -> tuple[date | None, date | None]:
+        range_match = re.search(
+            r"(?:(?P<start_year>\d{4})년\s*)?(?P<start_month>\d{1,2})월\s*"
+            r"(?P<start_day>\d{1,2})일\s*부터\s*"
+            r"(?:(?P<end_year>\d{4})년\s*)?(?:(?P<end_month>\d{1,2})월\s*)?"
+            r"(?P<end_day>\d{1,2})일(?:까지)?",
+            text,
+        )
+        if range_match:
+            start_year = int(range_match.group("start_year") or today.year)
+            end_year = int(range_match.group("end_year") or start_year)
+            end_month = int(range_match.group("end_month") or range_match.group("start_month"))
+            try:
+                return (
+                    date(start_year, int(range_match.group("start_month")), int(range_match.group("start_day"))),
+                    date(end_year, end_month, int(range_match.group("end_day"))),
+                )
+            except ValueError:
+                return None, None
+
+        explicit_dates: list[date] = []
+        for year, month, day in re.findall(
+            r"(?:(\d{4})년\s*)?(\d{1,2})월\s*(\d{1,2})일",
+            text,
+        ):
+            try:
+                explicit_dates.append(date(int(year or today.year), int(month), int(day)))
+            except ValueError:
+                continue
+        if explicit_dates:
+            return min(explicit_dates), max(explicit_dates)
+
+        weekdays = {
+            "월요일": 0,
+            "화요일": 1,
+            "수요일": 2,
+            "목요일": 3,
+            "금요일": 4,
+            "토요일": 5,
+            "일요일": 6,
+        }
+        weekday_match = re.search(
+            r"(?:(다음\s*주|이번\s*주)\s*)?(월요일|화요일|수요일|목요일|금요일|토요일|일요일)"
+            r"(?:\s*(?:부터|~)\s*(?:(다음\s*주|이번\s*주)\s*)?"
+            r"(월요일|화요일|수요일|목요일|금요일|토요일|일요일)(?:까지)?)?",
+            text,
+        )
+        if not weekday_match:
+            return None, None
+
+        start_week = weekday_match.group(1)
+        start_weekday = weekdays[weekday_match.group(2)]
+        current_week_start = today - timedelta(days=today.weekday())
+        if start_week and start_week.replace(" ", "") == "다음주":
+            start_date = current_week_start + timedelta(days=7 + start_weekday)
+        elif start_week:
+            start_date = current_week_start + timedelta(days=start_weekday)
+        else:
+            start_date = today + timedelta(days=(start_weekday - today.weekday()) % 7)
+
+        end_name = weekday_match.group(4)
+        if not end_name:
+            return start_date, start_date
+        end_week = weekday_match.group(3)
+        end_weekday = weekdays[end_name]
+        if end_week:
+            week_offset = 7 if end_week.replace(" ", "") == "다음주" else 0
+            end_date = current_week_start + timedelta(days=week_offset + end_weekday)
+        else:
+            end_date = start_date + timedelta(days=(end_weekday - start_weekday) % 7)
+        return start_date, end_date
 
     async def run(self, raw_request: str) -> dict[str, Any]:
         if not raw_request.strip():
@@ -172,6 +249,8 @@ class JobRegistrationAgent:
 
         for field in required_fields:
             value = result.get(field)
+            if field in ("workType", "location") and value is not None and not isinstance(value, str):
+                raise ValueError(f"{field} must be a string")
             if value is None or (isinstance(value, str) and not value.strip()):
                 if field not in missing_fields:
                     missing_fields.append(field)

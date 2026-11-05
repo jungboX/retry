@@ -5,12 +5,18 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
 
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.web.server.ResponseStatusException;
@@ -62,6 +68,75 @@ class DemoSessionStoreTest {
 
         assertEquals(409, exception.getStatusCode().value());
         assertFalse(store.matches(sessionId, match.jobId()).get(0).workerAccepted());
+    }
+
+    @Test
+    void restoresFarmerApprovalWhenPersistenceFails() {
+        UUID sessionId = UUID.randomUUID();
+        String analysisId = store.saveAnalysis(sessionId, analysis(List.of(), List.of()));
+        store.createJob(sessionId, analysisId);
+
+        JdbcTemplate failingJdbc = spy(new JdbcTemplate(new DriverManagerDataSource(databaseUrl, "sa", "")));
+        DemoSessionStore failingStore = new DemoSessionStore(
+            failingJdbc,
+            JsonMapper.builder().findAndAddModules().build()
+        );
+        DemoSessionStore.DemoState state = failingStore.getState(sessionId);
+        DemoSessionStore.Match match = failingStore.matches(sessionId, state.getJobId()).get(0);
+
+        doAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            if (sql.startsWith("UPDATE demo_sessions SET state_json")) {
+                throw new DataAccessResourceFailureException("Simulated database failure");
+            }
+            return invocation.callRealMethod();
+        }).when(failingJdbc).update(anyString(), any(Object[].class));
+
+        assertThrows(
+            DataAccessResourceFailureException.class,
+            () -> failingStore.farmerApprove(sessionId, match.id())
+        );
+
+        reset(failingJdbc);
+        assertFalse(failingStore.matches(sessionId, match.jobId()).get(0).farmerApproved());
+        assertFalse(store.matches(sessionId, match.jobId()).get(0).farmerApproved());
+    }
+
+    @Test
+    void restoresWorkerAcceptanceWhenPersistenceFails() {
+        UUID sessionId = UUID.randomUUID();
+        String analysisId = store.saveAnalysis(sessionId, analysis(List.of(), List.of()));
+        store.createJob(sessionId, analysisId);
+        DemoSessionStore.Match match = store.matches(sessionId, store.getState(sessionId).getJobId()).get(0);
+        store.farmerApprove(sessionId, match.id());
+
+        JdbcTemplate failingJdbc = spy(new JdbcTemplate(new DriverManagerDataSource(databaseUrl, "sa", "")));
+        DemoSessionStore failingStore = new DemoSessionStore(
+            failingJdbc,
+            JsonMapper.builder().findAndAddModules().build()
+        );
+        DemoSessionStore.DemoState state = failingStore.getState(sessionId);
+        DemoSessionStore.Match approvedMatch = failingStore.matches(sessionId, state.getJobId()).get(0);
+
+        doAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            if (sql.startsWith("UPDATE demo_sessions SET state_json")) {
+                throw new DataAccessResourceFailureException("Simulated database failure");
+            }
+            return invocation.callRealMethod();
+        }).when(failingJdbc).update(anyString(), any(Object[].class));
+
+        assertThrows(
+            DataAccessResourceFailureException.class,
+            () -> failingStore.workerAccept(sessionId, approvedMatch.id())
+        );
+
+        reset(failingJdbc);
+        DemoSessionStore.Match afterFailure = failingStore.matches(sessionId, approvedMatch.jobId()).get(0);
+        assertTrue(afterFailure.farmerApproved());
+        assertFalse(afterFailure.workerAccepted());
+        assertEquals("FARMER_APPROVED", afterFailure.status());
+        assertEquals("FARMER_APPROVED", store.matches(sessionId, approvedMatch.jobId()).get(0).status());
     }
 
     @Test

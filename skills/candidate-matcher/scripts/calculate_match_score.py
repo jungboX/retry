@@ -5,61 +5,76 @@ from typing import Any
 
 
 WEIGHTS = {
-    "distance": 30,
-    "skill": 25,
-    "schedule": 20,
-    "safety": 25,
+    "date": 30,
+    "workType": 25,
+    "distance": 20,
+    "experience": 15,
+    "pay": 10,
 }
 
 
 def calculate_score(job: dict[str, Any], worker: dict[str, Any]) -> dict[str, Any]:
     reasons: list[str] = []
-    score = 0
 
-    if worker.get("homeLocation") == job.get("location"):
-        score += WEIGHTS["distance"]
-        reasons.append("근거리에 위치해 이동 부담이 낮습니다.")
-    else:
-        reasons.append("근거리 조건은 다소 아쉽지만, 다른 항목이 우수합니다.")
+    date_match = worker["availableStart"] <= job["startDate"] and worker["availableEnd"] >= job["endDate"]
+    date_score = WEIGHTS["date"] if date_match else 0
+    reasons.append("일정이 요청 기간과 일치합니다." if date_match else "가능 날짜가 맞지 않습니다.")
 
-    if job.get("workType") in worker.get("workTypes", []):
-        score += WEIGHTS["skill"]
-        reasons.append("작업 유형과 경험이 적합합니다.")
-    else:
-        reasons.append("작업 유형이 완전히 일치하지는 않습니다.")
+    requested_work = "".join(job["workType"].split()).lower()
+    supported_work_types = (
+        "".join(work_type.split()).lower()
+        for work_type in worker.get("workTypes", [])
+    )
+    work_match = any(
+        requested_work in work_type or work_type in requested_work
+        for work_type in supported_work_types
+    )
+    work_score = WEIGHTS["workType"] if work_match else 0
+    reasons.append("작업 경험이 일치합니다." if work_match else "작업 경험을 확인해야 합니다.")
 
-    if worker.get("availableStart") <= job.get("startDate") and worker.get("availableEnd") >= job.get("endDate"):
-        score += WEIGHTS["schedule"]
-        reasons.append("근무 일정이 작업 기간과 일치합니다.")
-    else:
-        reasons.append("근무 일정이 작업 기간과 정확히 맞지 않습니다.")
+    distance_score = max(0, WEIGHTS["distance"] - max(0, worker["distanceKm"] - 5))
+    reasons.append(
+        "이동 거리가 가깝습니다." if distance_score else "이동 거리를 확인해야 합니다."
+    )
 
-    if "안전 장비 점검" in job.get("hazardFlags", []):
-        score += WEIGHTS["safety"]
-        reasons.append("안전 장비 확인이 가능해 작업 위험 대응이 좋습니다.")
-    else:
-        reasons.append("안전 항목은 기본 수준으로 평가됩니다.")
+    experience_score = min(WEIGHTS["experience"], worker["experienceYears"] * 3)
+    reasons.append(
+        "농작업 경험이 있습니다." if experience_score else "경험 수준을 확인해야 합니다."
+    )
 
-    total = min(score, 100)
+    pay_match = job["dailyPay"] >= worker["minimumPay"]
+    pay_score = WEIGHTS["pay"] if pay_match else 0
+    reasons.append("희망 일급 조건을 충족합니다." if pay_match else "희망 일급과 차이가 있습니다.")
+
+    weights = {
+        "date": date_score,
+        "workType": work_score,
+        "distance": distance_score,
+        "experience": experience_score,
+        "pay": pay_score,
+    }
+    total = sum(weights.values())
     return {
         "workerId": worker.get("id"),
         "score": total,
         "reasons": reasons,
+        "weights": weights,
     }
 
 
 if __name__ == "__main__":
     sample_job = {
         "workType": "복숭아 적과",
-        "location": "청도군 매전면",
         "startDate": "2026-11-09",
         "endDate": "2026-11-11",
-        "hazardFlags": ["안전 장비 점검"],
+        "dailyPay": 120000,
     }
 
     sample_worker = {
         "id": "worker-01",
-        "homeLocation": "청도군 매전면",
+        "distanceKm": 5,
+        "experienceYears": 3,
+        "minimumPay": 100000,
         "workTypes": ["복숭아 적과", "과수 작업"],
         "availableStart": "2026-11-09",
         "availableEnd": "2026-11-11",

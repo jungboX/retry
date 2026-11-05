@@ -35,25 +35,23 @@ description: 농가 작업에 적합한 구직자를 찾고, 결정론적 점수
   - nickname
   - availableStart
   - availableEnd
-  - homeLocation
-  - travelRadiusKm
+  - distanceKm
+  - experienceYears
+  - minimumPay
   - workTypes
-  - experienceLevel
-  - status
 
 ## 필수 동작
 
 1. 후보를 먼저 걸러낸다.
    - 작업 유형이 구직자의 workTypes에 포함되어야 한다.
-   - 근무 가능 기간이 작업 기간과 겹쳐야 한다.
-   - 구직자의 거주 지역이 허용 이동 반경 안에 있어야 한다.
-   - 불가능한 인원이나 안전상 부적합한 후보는 제외한다.
+   - 요청 기간 전체를 근무할 수 있어야 한다.
 
 2. 점수는 고정 가중치로 계산한다.
-   - distanceScore: 30
-   - skillScore: 25
-   - scheduleScore: 20
-   - safetyScore: 25
+   - dateScore: 30
+   - workTypeScore: 25
+   - distanceScore: 20
+   - experienceScore: 15
+   - payScore: 10
    - 최종 점수는 100점을 초과하지 않는다.
 
 3. 점수를 설명한다.
@@ -77,11 +75,13 @@ description: 농가 작업에 적합한 구직자를 찾고, 결정론적 점수
   "candidates": [
     {
       "workerId": "worker-01",
-      "score": 87,
+      "score": 94,
       "reasons": [
-        "근거리에 위치해 이동 부담이 낮습니다.",
-        "작업 유형과 경험 수준이 적합합니다.",
-        "근무 일정이 작업 기간과 일치합니다."
+        "일정이 요청 기간과 일치합니다.",
+        "작업 경험이 일치합니다.",
+        "이동 거리가 가깝습니다.",
+        "농작업 경험이 있습니다.",
+        "희망 일급 조건을 충족합니다."
       ]
     }
   ],
