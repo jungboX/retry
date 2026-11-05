@@ -7,17 +7,21 @@ export function WorkerDemoPage() {
   const [state, setState] = useState<DemoState>();
   const [matches, setMatches] = useState<Match[]>([]);
   const [busyMatch, setBusyMatch] = useState<string>();
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   const refresh = useCallback(async () => {
+    setLoading(true);
+    setError('');
     try {
       const current = await api.demoState();
       setState(current);
       setMatches(current.jobId ? await api.getMatches(current.jobId) : []);
-      setError('');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '데모 정보를 불러오지 못했습니다.');
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -54,9 +58,17 @@ export function WorkerDemoPage() {
         {error && <p className="alert error" role="alert">{error}</p>}
         {notice && <p className="alert success" role="status">{notice}</p>}
 
-        {!state?.jobId ? (
+        {loading && !state ? (
+          <div className="alert" role="status">저장된 작업 정보를 불러오는 중입니다.</div>
+        ) : !state && error ? (
+          <button type="button" className="secondary" onClick={() => void refresh()}>다시 시도</button>
+        ) : !state?.jobId ? (
           <div className="alert warning" role="status">
             아직 등록된 작업이 없습니다. <Link to="/farmer-demo">농가 데모에서 작업을 등록해 주세요.</Link>
+          </div>
+        ) : matches.length === 0 ? (
+          <div className="alert warning" role="status">
+            아직 추천된 후보가 없습니다. <Link to="/farmer-demo">농가 데모에서 요청 조건을 확인해 주세요.</Link>
           </div>
         ) : approvedMatches.length === 0 ? (
           <div className="alert warning" role="status">
@@ -78,7 +90,7 @@ export function WorkerDemoPage() {
                     <h3>{match.nickname}</h3>
                     <span className="badge">추천 점수 {match.totalScore}</span>
                   </div>
-                  <ul>{match.scoreReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                  <ul>{match.scoreReasons.map((reason, index) => <li key={`${index}-${reason}`}>{reason}</li>)}</ul>
                   {match.status === 'CONFIRMED' ? (
                     <p className="status-confirmed">농가와 구직자 양쪽이 동의했습니다. 매칭이 확정되었습니다.</p>
                   ) : match.workerAccepted ? (
@@ -94,7 +106,9 @@ export function WorkerDemoPage() {
             </div>
           </>
         )}
-        <button type="button" className="secondary section-gap" onClick={() => void refresh()}>상태 새로고침</button>
+        <button type="button" className="secondary section-gap" onClick={() => void refresh()} disabled={loading}>
+          {loading ? '새로고침 중…' : '상태 새로고침'}
+        </button>
       </section>
     </main>
   );
