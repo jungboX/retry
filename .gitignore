@@ -7,12 +7,15 @@ dist/
 target/
 *.class
 *.jar
+*.mv.db
+*.trace.db
 
 # Python
 __pycache__/
 .pytest_cache/
 .venv/
 *.pyc
+*.egg-info/
 
 # IDE
 .vscode/
