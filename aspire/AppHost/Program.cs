@@ -1,43 +1,43 @@
-using Aspire.Hosting;
-
 var builder = DistributedApplication.CreateBuilder(args);
-var repositoryRoot = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", ".."));
-var mcpDirectory = Path.Combine(repositoryRoot, "services", "mcp-server");
-var agentDirectory = Path.Combine(repositoryRoot, "services", "agent");
-var apiDirectory = Path.Combine(repositoryRoot, "services", "api");
-var postgres = builder.AddPostgres("postgres").WithDataVolume();
+var repositoryRoot = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", ".."));
+
+builder.AddAzureContainerAppEnvironment("aca-env");
+
+var copilotGithubToken = builder.AddParameter("copilotGithubToken", secret: true);
+
+var postgres = builder.AddAzurePostgresFlexibleServer("postgres")
+    .WithPasswordAuthentication()
+    .RunAsContainer(container => container.WithDataVolume());
 var database = postgres.AddDatabase("retry");
 
-var mcp = builder.AddExecutable(
-        "mcp-server",
-        "mvn",
-        ["spring-boot:run"],
-        mcpDirectory)
-    .WithHttpEndpoint(port: 8082, targetPort: 8082, name: "http");
+// Dockerfile 빌드 컨텍스트는 저장소 루트다.
+var mcp = builder.AddDockerfile("mcp-server", repositoryRoot, "services/mcp-server/Dockerfile")
+    .WithHttpEndpoint(port: 8082, targetPort: 8082, name: "http")
+    .WithHttpHealthCheck("/actuator/health");
 
-var agent = builder.AddExecutable(
-        "agent-service",
-        "python",
-        ["-m", "uvicorn", "retry_agent.main:app", "--host", "0.0.0.0", "--port", "8000"],
-        agentDirectory)
-    .WithEnvironment("PYTHONPATH", Path.Combine(agentDirectory, "src"))
-    .WithEnvironment("MCP_SERVER_URL", mcp.GetEndpoint("http"))
+var agent = builder.AddDockerfile("agent-service", repositoryRoot, "services/agent/Dockerfile")
     .WithHttpEndpoint(port: 8000, targetPort: 8000, name: "http")
+    .WithEnvironment("MCP_SERVER_URL", mcp.GetEndpoint("http"))
+    .WithEnvironment("COPILOT_GITHUB_TOKEN", copilotGithubToken)
+    .WithHttpHealthCheck("/health")
     .WaitFor(mcp);
 
-var api = builder.AddExecutable(
-        "api-service",
-        "mvn",
-        ["spring-boot:run"],
-        apiDirectory)
+var api = builder.AddDockerfile("api-service", repositoryRoot, "services/api/Dockerfile")
+    .WithHttpEndpoint(port: 8081, targetPort: 8081, name: "http")
     .WithEnvironment("AGENT_SERVICE_URL", agent.GetEndpoint("http"))
     .WithReference(database)
+    .WithHttpHealthCheck("/actuator/health")
     .WaitFor(database)
-    .WithHttpEndpoint(port: 8081, targetPort: 8081, name: "http")
     .WaitFor(agent);
 
-builder.AddNpmApp("frontend", Path.Combine(repositoryRoot, "frontend"), "dev")
-    .WithEnvironment("VITE_API_BASE_URL", "")
-    .WaitFor(api);
+var web = builder.AddViteApp("web", Path.Combine(repositoryRoot, "frontend"));
+
+// 외부에 공개하는 진입점은 게이트웨이뿐이고, 프런트엔드 정적 파일을 서빙하며 /api를 API로 프록시한다.
+#pragma warning disable ASPIREJAVASCRIPT001
+builder.AddYarp("gateway")
+    .WithConfiguration(yarp => yarp.AddRoute("/api/{**catch-all}", api.GetEndpoint("http")))
+    .WithExternalHttpEndpoints()
+    .PublishWithStaticFiles(web);
+#pragma warning restore ASPIREJAVASCRIPT001
 
 builder.Build().Run();

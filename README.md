@@ -39,12 +39,12 @@
 
 ```bash
 npm --prefix frontend run build
-(cd services/agent && python -m pytest -q)
+(cd services/agent && uv run pytest -q)
 mvn -f services/api/pom.xml test
 mvn -f services/mcp-server/pom.xml test
 ```
 
-Java 21, Maven, Python 3.11 이상이 필요하다. Agent 테스트 전에 `services/agent`에서 `pip install -e ".[dev]"`로 개발 의존성을 설치한다.
+Java 21, Maven, Python 3.11 이상, [uv](https://docs.astral.sh/uv/)가 필요하다. Agent 개발 의존성(`pytest` 등)은 `pyproject.toml`의 `dependency-groups`에 있으며 `uv run`이 자동 설치한다.
 
 ## 핵심 경로
 

@@ -31,21 +31,23 @@
 
 ### 담당자 4 작업 목록 (Aspire 배포)
 
-1. AppHost 패키지·SDK를 `aspire deploy`와 Azure Container Apps 대상을 지원하는 공식 문서 기준 버전으로 올리고 빌드한다. 현재 `Aspire.Hosting` 9.0.0, `net9.0`은 지원 여부를 확인하지 않았다.
-2. AppHost에 Azure Container Apps 환경을 추가한다. 이 환경이 없으면 `aspire deploy`는 아무 작업도 하지 않는다.
-3. 현재 `AddExecutable`(`mvn`, `python`) 서비스를 Dockerfile 기반 컨테이너 리소스로 바꾼다. Dockerfile은 저장소 루트를 빌드 컨텍스트로 가정한다.
-4. 웹은 정적 웹사이트로 게시하고 `/api`를 API로 프록시한다. 외부 공개 엔드포인트는 웹만 둔다. 이 게시 API는 공식 문서에서 실험적이므로 동작을 검증한다.
-5. PostgreSQL을 배포 시 관리형 서비스로 모델링하고 TLS·네트워크 접근 범위를 검증한다.
-6. Copilot 토큰을 비밀 매개변수로 선언하고 Agent에 환경 변수로 주입한다.
-7. `aspire deploy`를 사전 검증한다. Azure 자격 증명이 없으면 검증하지 못한 범위를 보고하고 배포가 끝났다고 말하지 않는다.
-8. 최소 CI(`.github/workflows`)를 추가한다: 프런트엔드 빌드, `pytest`, `mvn test`(api·mcp), AppHost 빌드.
+1. (완료) AppHost를 Aspire 13.6.4, .NET 10 SDK(`net10.0`)로 올리고 빌드했다. .NET 10 SDK와 Aspire CLI(`dotnet tool install -g Aspire.Cli`)가 필요하다.
+2. (완료) AppHost에 Azure Container Apps 환경(`aca-env`)을 추가했다. `aspire publish`로 Bicep 생성을 확인했고 외부 ingress는 게이트웨이뿐이다.
+3. (완료) API·Agent·MCP를 `AddDockerfile` 컨테이너 리소스로 바꿨다. 빌드 컨텍스트는 저장소 루트다. 이미지 빌드 자체는 Dockerfile 소유자(담당자 1·2)가 검증한다.
+4. (모델 완료, 실배포 미검증) YARP 게이트웨이가 정적 파일을 서빙하고 `/api`를 API로 프록시한다. 외부 공개 엔드포인트는 게이트웨이뿐이다. 이 게시 API는 공식 문서에서 실험적이므로 첫 실배포에서 검증한다.
+5. (모델 완료, TLS·네트워크 미검증) PostgreSQL을 로컬은 컨테이너, Azure는 관리형 Flexible Server로 모델링했다. 배포 후 TLS·네트워크 접근 범위를 검증한다.
+6. (완료) Copilot 토큰을 비밀 매개변수 `copilotGithubToken`으로 선언하고 Agent에 `COPILOT_GITHUB_TOKEN`으로 주입한다.
+7. (부분 완료) `aspire publish`로 Bicep 생성까지 확인했다. 실제 `aspire deploy`는 Azure 자격 증명이 없어 미검증이며, 배포가 끝났다고 보고하지 않는다.
+8. (작성 완료, 첫 실행 미검증) `.github/workflows/ci.yml`에 프런트엔드 빌드, Agent `pytest`, `mvn test`(api·mcp), AppHost 빌드를 추가했다.
 9. Aspire 배포가 검증된 뒤 `infra/main.bicep` 처리를 결정한다. 그 전에는 삭제하지 않고, 이 파일로 배포했다고 보고하지 않는다.
 
 다른 담당자에게 요청할 변경:
 
-- 담당자 3: `frontend/vite.config.ts`의 `/api` 프록시를 Aspire가 주입하는 API 주소로 바꾼다 (현재 `localhost:8081` 고정).
-- 담당자 1: 관리형 Azure PostgreSQL 연결에 필요한 TLS 옵션을 `DataSourceConfiguration`에 반영한다.
+- 담당자 3: 요청 없음. 로컬 개발은 Vite 개발 서버(5173)가 `localhost:8081`로 프록시하고, AppHost가 API 컨테이너를 호스트 8081에 고정 노출한다. 이 값을 바꾸면 AppHost도 같이 바꾼다.
+- 담당자 1: 관리형 Azure PostgreSQL은 TLS를 요구한다. Aspire가 주는 연결 문자열에는 SSL 옵션이 없으므로 `DataSourceConfiguration`가 만드는 JDBC URL에 `sslmode=require`를 붙이는 방식으로 반영한다(로컬 컨테이너 Postgres에는 붙이지 않는다).
 - 담당자 1·2: 각 Dockerfile이 Aspire 컨테이너 리소스에서 빌드되는지 확인한다.
+- 담당자 1: `services/api`의 `mvn test`가 컴파일 단계에서 실패한다(`com.fasterxml.jackson.*` 없음). `pom.xml` 의존성을 확인한다.
+- 담당자 2: `services/mcp-server`의 `mvn test`가 컴파일 단계에서 실패한다(테스트의 `@Test` 심볼 없음). `pom.xml`의 테스트 의존성을 확인한다.
 
 ## 브랜치·PR 절차
 
@@ -93,14 +95,14 @@
 
 ## 검증 현황 및 명령
 
-2026-11-05 기준 이전 기록: 프런트엔드 프로덕션 빌드와 Python 구문 검사는 통과했다. Agent 테스트, Java API/MCP 테스트, Aspire 빌드, E2E, Azure 배포는 확인되지 않았다. 점수 가중치 중 작업 종류 25점은 코드로 확인하지 않았다. 프런트엔드 의존성 설치 시 npm이 취약점 4건(중간 3, 높음 1)을 보고했으며, 범위 검토 없이 자동 업그레이드하지 않는다.
+2026-11-05 `feat/aspire-deploy` 기준 확인 결과: 프런트엔드 `npm ci`·프로덕션 빌드, AppHost `dotnet build`, `aspire publish`(Bicep 생성, 외부 ingress는 게이트웨이뿐)는 통과했다. **`mvn test`는 api와 mcp-server 모두 컴파일 단계에서 실패한다** (api: `DemoSessionStore`의 `com.fasterxml.jackson.*` 패키지 없음, mcp-server: 테스트의 `@Test` 심볼 없음). 둘 다 `pom.xml` 의존성 문제로 보이며 담당자 1·2가 해결해야 한다. 이 때문에 Dockerfile 이미지 빌드와 CI의 `api`·`mcp-server` 잡도 실패할 것이다. Agent 테스트(`uv`가 이 PC에 없어 미실행), E2E, `aspire deploy`는 확인하지 않았다. 점수 가중치 중 작업 종류 25점은 코드로 확인하지 않았다. 프런트엔드 의존성 설치 시 npm이 취약점 4건(중간 3, 높음 1)을 보고했으며, 범위 검토 없이 자동 업그레이드하지 않는다.
 
 ```bash
 # 프런트엔드
 npm --prefix frontend run build
 
-# Python Agent (services/agent에서 pip install -e ".[dev]" 후)
-(cd services/agent && python -m pytest -q)
+# Python Agent (uv 필요)
+(cd services/agent && uv run pytest -q)
 
 # Java 서비스 (Java 21과 Maven 필요)
 mvn -f services/api/pom.xml test

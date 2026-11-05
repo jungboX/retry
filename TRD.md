@@ -33,7 +33,7 @@ TRD는 PRD의 사용자 요구를 기술 구성, 서비스 경계, 인터페이�
 | 이미지 저장소 | Azure Container Registry | Aspire가 배포 시 프로비저닝하고 이미지를 빌드·게시한다 |
 | 관리형 데이터 | Azure Database for PostgreSQL Flexible Server | 배포 환경의 데모 데이터 저장 |
 
-Spring AI 버전은 Spring Boot 버전과 별개로 BOM에서 관리한다. 구현 전에 선택한 프레임워크 버전의 상호 호환성을 확인한다. 현재 AppHost 패키지(`Aspire.Hosting` 9.0.0, `net9.0`)는 `aspire deploy`와 Azure Container Apps 대상을 지원하는 버전이 아닐 수 있으므로, 공식 문서 기준 버전으로 올리고 빌드를 검증한다.
+Spring AI 버전은 Spring Boot 버전과 별개로 BOM에서 관리한다. 구현 전에 선택한 프레임워크 버전의 상호 호환성을 확인한다. AppHost는 Aspire 13.6.4와 .NET 10 SDK(`net10.0`)를 사용하며, 빌드와 `aspire publish`(Bicep 생성)까지 확인했다. 실제 `aspire deploy`는 아직 검증하지 않았다.
 
 ## 3. 서비스 경계와 호출 흐름
 
@@ -176,7 +176,7 @@ Aspire AppHost는 웹, API, Agent, MCP, PostgreSQL의 실행 관계를 관리하
 배포 모델의 기준:
 
 - API, Agent, MCP는 컨테이너 리소스로 모델링한다. 기존 Dockerfile(`services/*/Dockerfile`)을 사용하며, 이 Dockerfile은 저장소 루트를 빌드 컨텍스트로 가정한다. 현재 AppHost의 `AddExecutable`(`mvn`, `python`) 리소스는 컨테이너 배포 대상이 될 수 없으므로 배포 경로에서 교체한다.
-- 웹은 Vite 앱 리소스로 두고 정적 웹사이트로 게시해, 웹 컨테이너가 `/api`를 API로 프록시하도록 한다. 웹만 외부 공개 엔드포인트를 가지며 API, Agent, MCP는 내부 접근으로 둔다. 이 게시 방식의 API는 공식 문서에서 실험적이므로 사용 버전에서 동작을 확인한다.
+- 웹은 Vite 앱 리소스로 두고, YARP 게이트웨이 리소스가 빌드된 정적 파일을 서빙하면서 `/api`를 API로 프록시한다(`PublishWithStaticFiles`). 게이트웨이만 외부 공개 엔드포인트를 가지며 API, Agent, MCP는 내부 접근으로 둔다. `PublishAsStaticWebsite`는 `apiTarget`이 서비스 디스커버리 리소스여야 해서 Dockerfile 컨테이너 API에는 쓸 수 없고, 로컬 개발은 Vite 개발 서버(5173)가 `localhost:8081`로 프록시한다. 이 게시 API는 공식 문서에서 실험적(`ASPIREJAVASCRIPT001`)이다.
 - PostgreSQL은 로컬에서는 컨테이너, Azure에서는 관리형 PostgreSQL을 사용하도록 모델링하고, API는 `ConnectionStrings__retry`를 통해 연결한다.
 - Copilot 토큰은 비밀 매개변수로 선언해 Agent에 환경 변수로 주입하며, 소스와 저장소에 값을 두지 않는다.
 
@@ -225,10 +225,10 @@ aspire deploy --environment Production
 - **모델 인증:** 로컬 개발과 Azure 컨테이너에서 각각 비대화형 인증이 가능한지 확인한다. 사용자 개인의 로컬 CLI 로그인에만 의존하지 않는다.
 - **공개 데모 상태:** 무인증 환경에서 여러 심사자가 동시에 사용할 때 데이터가 섞이거나 기존 데모를 덮어쓰지 않는지 검증한다.
 - **시간·날짜 해석:** “다음 주” 같은 상대 날짜는 기준 시간대를 명확히 하고, 사용자 확인 전에는 확정 조건으로 취급하지 않는다.
-- **Aspire 배포 호환성:** 현재 AppHost 패키지(9.0.0, `net9.0`)에는 Azure Container Apps 배포 대상이 없다. 지원 버전으로 올린 뒤 빌드하고, `AddExecutable` 리소스를 컨테이너 리소스로 바꾸고, 웹 정적 게시(실험적 API)가 동작하는지 `aspire deploy` 사전 검증으로 확인한다. 검증 전에는 배포가 가능하다고 보고하지 않는다.
+- **Aspire 배포 호환성:** `aspire publish`로 Bicep 생성은 확인했고, 외부 ingress는 게이트웨이 하나뿐이다. 실제 `aspire deploy`(이미지 빌드·푸시·프로비저닝)는 Azure 자격 증명이 필요해 아직 검증하지 않았다. 게이트웨이의 정적 게시 API는 실험적이므로 첫 실배포에서 정적 파일과 `/api` 라우팅을 확인한다.
 - **관리형 DB 연결:** API가 Aspire 연결 문자열에서 만드는 JDBC URL에는 SSL 옵션이 없다. 관리형 Azure PostgreSQL의 TLS 요구와 네트워크 접근 범위(공개 접근 여부)를 배포 후 검증하고, 프로덕션 공개 전에 경계를 검토한다.
-- **Dockerfile 빌드 컨텍스트:** 세 Dockerfile은 저장소 루트를 컨텍스트로 가정한다. AppHost의 컨테이너 리소스가 같은 컨텍스트를 쓰는지 확인한다.
-- **프런트엔드 프록시:** `frontend/vite.config.ts`의 `/api` 프록시는 `localhost:8081`로 고정돼 있다. Aspire가 주입하는 API 주소를 읽도록 바꿔 로컬과 배포에서 같은 상대 경로가 동작하게 한다.
+- **Dockerfile 빌드 컨텍스트:** AppHost는 세 Dockerfile을 저장소 루트 컨텍스트로 참조한다. 현재 `services/api`와 `services/mcp-server`는 `mvn test`가 컴파일 단계에서 실패하므로 이미지 빌드도 실패할 것이다. 두 서비스의 의존성을 고친 뒤 이미지 빌드를 검증한다.
+- **프런트엔드 프록시:** 로컬 개발은 Vite 개발 서버(5173)가 `localhost:8081`로 프록시하고, AppHost가 API 컨테이너를 호스트 8081에 고정 노출한다. 배포에서는 게이트웨이가 `/api`를 프록시하므로 프런트엔드는 상대 경로만 쓴다.
 
 ## 12. 기술 요구사항과 검증
 
