@@ -55,6 +55,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CreatedJob'
+        '422':
+          description: 필수 작업 조건이 누락되거나 유효하지 않음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         default:
           $ref: '#/components/responses/ErrorResponse'
 

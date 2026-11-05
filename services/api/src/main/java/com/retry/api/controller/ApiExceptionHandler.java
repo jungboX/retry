@@ -7,6 +7,9 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
@@ -30,6 +33,15 @@ public class ApiExceptionHandler {
             .map(error -> error.getField() + " 항목을 확인해 주세요.")
             .orElse("요청 값을 확인해 주세요.");
         return response(HttpStatus.BAD_REQUEST, message);
+    }
+
+    @ExceptionHandler({
+        HttpMessageNotReadableException.class,
+        MissingRequestHeaderException.class,
+        MethodArgumentTypeMismatchException.class
+    })
+    public ResponseEntity<Map<String, Object>> handleInvalidRequest(Exception exception) {
+        return response(HttpStatus.BAD_REQUEST, "요청 값을 확인해 주세요.");
     }
 
     @ExceptionHandler(DataAccessException.class)
