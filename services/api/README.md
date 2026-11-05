@@ -6,8 +6,8 @@
 - 작업 브랜치: `feat/api-postgres-tls` (`origin/main` 기반)
 - 담당 범위: 담당자 1의 `services/api/**`, `shared/openapi.yaml`
 - 이번 API 코드 변경: **구현 완료**
-- 테스트: **16개 통과** — Java 17 override로 실행
-- 검증 및 통합: **부분 완료** — Java 21 테스트와 실제 Azure DB 연결은 아직 확인되지 않음
+- 테스트: **16개 통과** — Temurin JDK 21로 실행
+- 검증 및 통합: **부분 완료** — 실제 Azure DB 연결과 전체 Aspire 통합은 아직 확인되지 않음
 
 기존 API 브랜치의 변경은 API 소유 파일만 이 브랜치로 가져왔다. 담당자 4 소유인 루트 제품 문서는 포함하지 않았다.
 
@@ -27,19 +27,20 @@ Azure TLS 적용은 데이터베이스 호스트 이름을 기준으로 한다. 
 
 ## IDE에서 API 코드가 인식되지 않을 때
 
-`.idea/misc.xml`은 프로젝트 SDK를 `temurin-21`로 지정한다. 개발 PC에 JDK 21이 없으면 IntelliJ가 프로젝트 SDK를 찾지 못해 Java 심볼이나 의존성을 오류로 표시할 수 있다. JDK 21을 설치한 뒤 Project SDK와 Maven Importing JDK를 `temurin-21`로 맞추고 Maven 프로젝트를 다시 불러온다.
+`.idea/misc.xml`은 프로젝트 SDK를 `temurin-21`로 지정한다. 현재 PC에는 `C:\Users\pc\.jdks\temurin-21.0.12.1`이 설치되어 있다. IntelliJ의 Project SDK, Maven Importing JDK, Maven Runner JRE를 모두 이 JDK 21로 지정하고 Maven 프로젝트를 다시 불러온다.
 
-Java 17 override 테스트 통과는 API 코드가 컴파일된다는 증거지만, Java 21 IDE 설정이나 Java 21 런타임 검증을 대신하지 않는다.
+현재 PowerShell 환경은 `JAVA_HOME=C:\Program Files\Java\jdk-17`이며 `mvn` 명령이 PATH에서 인식되지 않는다. 저장소에는 Maven Wrapper도 없다. 따라서 IDE에서 프로젝트를 못 읽는 현상은 JDK 설치 부재보다 Maven import/JDK 설정 불일치일 수 있다. CLI를 사용할 때는 Maven 설치 경로를 PATH에 추가하고 `JAVA_HOME`을 JDK 21로 지정한다.
 
 ## 검증 상태와 남은 작업
 
 | 항목 | 상태 | 비고 |
 |---|---|---|
 | 변경 파일 범위와 공백 검사 | 통과 | 담당자 1 소유 범위만 변경 |
-| API Maven 테스트 | 통과 (16개) | Maven 3.9.11, `-Djava.version=17`로 실행. Java 21 기준 테스트 필요 |
+| API Maven 테스트 | 통과 (16개) | Maven 3.9.11, Temurin JDK 21 (`release 21`) |
 | Azure PostgreSQL 실연결 | 미검증 | Azure 자격 증명·배포 환경 없이 확인 불가 |
 | Aspire 연결 및 컨테이너 빌드 컨텍스트 | 미검증 | 담당자 4·서비스 담당자와 통합 시 확인 |
-| 커밋·원격 push·PR | 미완료 | 테스트 결과 확인 후 담당자 브랜치에서 진행 |
+| 커밋·원격 push | 완료 | 커밋 `a2b15ec`가 `feat/api-postgres-tls`에 push됨 |
+| main 통합 | PR 필요 | 담당자 절차에 따라 main 대상 PR로 병합 |
 
 Java 21이 설치된 환경의 검증 명령:
 
@@ -47,4 +48,4 @@ Java 21이 설치된 환경의 검증 명령:
 mvn -f services\api\pom.xml test
 ```
 
-현재 로컬 Java 17 환경에서의 결과는 Java 21 기준 통과로 간주하지 않는다. Azure PostgreSQL 실제 연결과 배포 네트워크 접근 범위는 담당자 4의 Aspire 배포 검증과 함께 확인해야 한다.
+Azure PostgreSQL 실제 연결과 배포 네트워크 접근 범위는 담당자 4의 Aspire 배포 검증과 함께 확인해야 한다.
