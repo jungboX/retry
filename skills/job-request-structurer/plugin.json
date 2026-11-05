@@ -1,0 +1,6 @@
+{
+  "name": "job-request-structurer",
+  "description": "자연어 농가 요청을 구조화된 Job JSON으로 변환하는 스킬입니다.",
+  "version": "0.1.0",
+  "skills": "./"
+}
