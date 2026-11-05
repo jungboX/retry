@@ -1,11 +1,17 @@
-server:
-  port: 8082
-
 spring:
   application:
     name: retry-mcp-server
+  ai:
+    mcp:
+      server:
+        name: retry-mcp-server
+        protocol: STREAMABLE
 
-mcp:
-  server:
-    name: retry-mcp-server
-    transport: stdio
+server:
+  port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
