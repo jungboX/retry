@@ -37,6 +37,25 @@
 
 모든 변경은 아직 통합 검증이 필요한 작업본이다. 팀원이 이어받을 기능 브랜치는 `feat/mvp-matching-flow`다. 담당자별 기능 커밋과 필요한 문서 커밋으로 정리한 뒤 이 브랜치를 원격에 push한다. 커밋 전에는 `git status --short`와 `git diff --check`로 다른 담당자의 미완료 변경을 확인한다.
 
+### 원격에 push한 기준 커밋
+
+2026-11-05에 `origin/feat/mvp-matching-flow`로 push했다. 팀원은 저장소에서 다음 명령으로 가져온다.
+
+```powershell
+git fetch origin
+git switch --track origin/feat/mvp-matching-flow
+```
+
+브랜치를 이미 체크아웃했다면 `git pull`로 최신 변경을 받는다.
+
+| 커밋 | 영역 |
+|---|---|
+| `037613e` | API, 세션 저장, OpenAPI |
+| `ecea022` | Agent와 MCP |
+| `4e6d4a3` | 프런트엔드 |
+| `320d537` | Aspire와 Azure 리소스 |
+| `d227868` | 제품 문서와 인계 문서 |
+
 ## 검증 현황 및 명령
 
 프런트엔드 프로덕션 빌드와 Python 구문 검사는 통과했다. Agent 테스트, Java API/MCP 테스트, Aspire 빌드, Bicep 검증, E2E는 완료로 확인되지 않았다. 프런트엔드 의존성 설치는 실행됐으며 npm이 4건의 취약점(중간 3, 높음 1)을 보고했다. 의존성 자동 업그레이드는 범위 검토 없이 적용하지 않는다.
@@ -63,7 +82,7 @@ git diff --check
 git status --short
 ```
 
-현재 개발 환경에는 Java 21과 .NET SDK가 확인되지 않았고, Maven 명령도 PATH에 없다. Java 프로젝트는 21을 요구한다. Python 테스트는 의존성을 설치한 뒤 실행해 결과를 기록한다.
+현재 개발 환경에는 Java 21과 .NET SDK가 확인되지 않았다. Maven CLI는 PATH에 없지만 로컬 Maven 3.9.9 배포본은 있으며, 기본 Java는 17이라 Java 21 프로젝트 테스트를 아직 실행할 수 없다. Python 테스트 의존성 설치는 완료 전에 중단했으므로 pytest를 설치한 뒤 실행 결과를 기록한다.
 
 ## 커밋·원격 반영 절차
 
@@ -76,8 +95,7 @@ git status --short
    - `feat(aspire): configure the verified Azure deployment path`
    - 필요하면 문서 변경을 별도 `docs: document implementation and deployment handoff` 커밋으로 분리한다.
 4. 코드 변경은 테스트 결과를, 인프라 변경은 선택된 배포 타깃과 검증 범위를 커밋 설명에 남긴다. 저장소의 커밋 규칙에 따라 Co-authored-by trailer를 포함한다.
-5. `git fetch origin` 후 `main`이 `origin/main`과 충돌 없이 진행 가능한지 확인한다. 사용자가 요청했으므로 준비된 커밋을 `origin/main`에 push하되, 원격에 새 커밋이 있으면 강제 push하지 말고 먼저 통합한다.
-6. 마지막으로 실제 원격 반영 커밋과 push 성공 여부를 이 문서에 갱신한다.
+5. 후속 기능 브랜치에서 `git fetch origin`으로 최신 기준을 확인하고, `feat/mvp-matching-flow`에 새 커밋을 push한다. `main`에 직접 push하지 않는다. 원격에 새 커밋이 있으면 강제 push하지 말고 먼저 통합한다.
 
 ## 보안·배포 주의
 
