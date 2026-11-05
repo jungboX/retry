@@ -22,9 +22,3 @@ candidate-matcher 스킬을 사용해서 이 작업에 맞는 후보를 찾고 �
 ## 기대 결과
 
 이 스킬은 정렬된 후보 목록과 추천 요약을 반환합니다.
-
-## 이 스킬의 파일
-
-- SKILL.md: 에이전트용 작업 지침서
-- plugin.json: 스킬 등록 정보
-- scripts/calculate_match_score.py: 점수 계산 데모 로직

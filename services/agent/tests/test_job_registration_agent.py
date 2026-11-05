@@ -33,6 +33,19 @@ def test_does_not_invent_missing_required_values() -> None:
     assert set(result["missingFields"]) == {"location", "startDate", "endDate", "workersNeeded", "dailyPay"}
 
 
+def test_fallback_parser_extracts_basic_demo_request() -> None:
+    parsed = JobRegistrationAgent._fallback_parse(
+        "청도군 매전면에서 11월 9일부터 11월 11일까지 복숭아 적과 작업 2명, 일급 120000원, 식사 제공, 농기계 안전 점검"
+    )
+
+    assert parsed["location"] == "청도군 매전면"
+    assert parsed["workType"] == "복숭아 적과"
+    assert parsed["workersNeeded"] == 2
+    assert parsed["dailyPay"] == 120000
+    assert parsed["mealProvided"] is True
+    assert parsed["hazardFlags"] == ["농기계", "안전 점검"]
+
+
 @pytest.mark.parametrize(
     "field,value",
     [("workersNeeded", 0), ("workersNeeded", True), ("dailyPay", -1)],
