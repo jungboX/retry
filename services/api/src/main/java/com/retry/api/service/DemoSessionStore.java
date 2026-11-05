@@ -53,7 +53,6 @@ public class DemoSessionStore {
             if (pending == null || !pending.id().equals(analysisId)) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "요청 분석이 만료되었습니다. 다시 분석해 주세요.");
             }
-            validateMissingFields(pending.analysis().get("missingFields"), false);
             Map<String, Object> job = objectValue(pending.analysis().get("job"));
             if (job.isEmpty()) {
                 job = pending.analysis();
